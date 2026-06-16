@@ -1,6 +1,3 @@
-// Copyright 2026 Barcelona Supercomputing Center (BSC)
-// SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
-//
 // SystemC Model for SAURIA NPU Core
 // Top-Level NPU Wrapper (Connecting Sram, Control, Feeders, Array, PSM, ConfigRegs)
 
@@ -16,7 +13,8 @@
 #include "psm/psm_top.h"
 #include "sram/sram_top.h"
 
-namespace sauria {
+namespace sauria
+{
 
     template <
         int X_DIM = 32,
@@ -29,9 +27,9 @@ namespace sauria {
         int SRAMC_CAP = 2048,
         int FIFO_DEPTH = 16,
         int PE_LAT = X_DIM + Y_DIM,
-        int EXTRA_CSREG = 1
-    >
-    class NpuTop : public sc_module {
+        int EXTRA_CSREG = 1>
+    class NpuTop : public sc_module
+    {
     public:
         // Clocks & Resets
         sc_in<bool> i_clk{"i_clk"};
@@ -39,33 +37,34 @@ namespace sauria {
         sc_in<bool> i_soft_reset{"i_soft_reset"};
 
         // Host Control Interface
-        sc_in<bool>  i_start{"i_start"};
+        sc_in<bool> i_start{"i_start"};
         sc_out<bool> o_done{"o_done"};
         sc_out<bool> o_deadlock{"o_deadlock"};
 
         // Host Memory Port (AXI interface modeling)
-        sc_in<uint32_t>     i_host_addr{"i_host_addr"};
-        sc_in<bool>         i_host_wren{"i_host_wren"};
-        sc_in<bool>         i_host_rden{"i_host_rden"};
-        sc_in<host_data_t>  i_host_wdata{"i_host_wdata"};
-        sc_in<host_mask_t>  i_host_wmask{"i_host_wmask"};
+        sc_in<uint32_t> i_host_addr{"i_host_addr"};
+        sc_in<bool> i_host_wren{"i_host_wren"};
+        sc_in<bool> i_host_rden{"i_host_rden"};
+        sc_in<host_data_t> i_host_wdata{"i_host_wdata"};
+        sc_in<host_mask_t> i_host_wmask{"i_host_wmask"};
         sc_out<host_data_t> o_host_rdata{"o_host_rdata"};
 
         // Runtime config configurations (threshold, select, and tiled loop counts)
-        sc_in<float>        i_threshold{"i_threshold"};
-        sc_in<sc_bv<3>>     i_select{"i_select"};
+        sc_in<float> i_threshold{"i_threshold"};
+        sc_in<sc_bv<3>> i_select{"i_select"};
 
         // Constructor
         SC_HAS_PROCESS(NpuTop);
-        NpuTop(sc_module_name nm, const PeConfig& pe_cfg = PeConfig()) : sc_module(nm) {
+        NpuTop(sc_module_name nm, const PeConfig &pe_cfg = PeConfig()) : sc_module(nm)
+        {
             // Instantiate submodules
-            sram_inst        = new Sram<X_DIM, Y_DIM, T_ACT, T_WEI, T_PSUM, SRAMA_CAP, SRAMB_CAP, SRAMC_CAP>("sram_inst");
-            ctrl_inst        = new Control<X_DIM, Y_DIM, PE_LAT, EXTRA_CSREG>("ctrl_inst");
-            act_feeder       = new IfmapFeeder<Y_DIM, T_ACT, SRAMA_CAP, FIFO_DEPTH>("act_feeder");
-            wei_feeder       = new WeightFeeder<X_DIM, T_WEI, SRAMB_CAP, FIFO_DEPTH>("wei_feeder");
-            array_inst       = new SystolicArray<X_DIM, Y_DIM, T_ACT, T_WEI, T_PSUM>("array_inst", pe_cfg);
-            psm_inst         = new Psm<X_DIM, Y_DIM, T_PSUM, SRAMC_CAP>("psm_inst");
-            config_regs_inst = new ConfigRegs<32, 32, X_DIM, Y_DIM, 2, 15, 15, 15, 8, DILP_W, 8>("config_regs_inst");
+            sram_inst = new Sram<X_DIM, Y_DIM, T_ACT, T_WEI, T_PSUM, SRAMA_CAP, SRAMB_CAP, SRAMC_CAP>("sram_inst");
+            ctrl_inst = new Control<X_DIM, Y_DIM, PE_LAT, EXTRA_CSREG>("ctrl_inst");
+            act_feeder = new IfmapFeeder<Y_DIM, T_ACT, SRAMA_CAP, FIFO_DEPTH>("act_feeder");
+            wei_feeder = new WeightFeeder<X_DIM, T_WEI, SRAMB_CAP, FIFO_DEPTH>("wei_feeder");
+            array_inst = new SystolicArray<X_DIM, Y_DIM, T_ACT, T_WEI, T_PSUM>("array_inst", pe_cfg);
+            psm_inst = new Psm<X_DIM, Y_DIM, T_PSUM, SRAMC_CAP>("psm_inst");
+            config_regs_inst = new ConfigRegs<32, 32, X_DIM, Y_DIM, 2, 15, 15, 15, DILP_W, 8>("config_regs_inst");
 
             SC_METHOD(host_rdata_mux);
             sensitive << i_host_addr << s_host_rdata_sram << s_host_rdata_cfg;
@@ -73,6 +72,9 @@ namespace sauria {
             SC_METHOD(start_reset_logic);
             sensitive << i_start << s_cfg_start << i_soft_reset << s_cfg_soft_reset << s_ctrl_done;
 
+            SC_METHOD(done_latch_logic);
+            sensitive << i_clk.pos();
+            dont_initialize();
             // ----------------------------------------------------
             // Signal Interconnections
             // ----------------------------------------------------
@@ -112,6 +114,33 @@ namespace sauria {
             config_regs_inst->i_soft_reset_in(i_soft_reset);
             config_regs_inst->o_start(s_cfg_start);
             config_regs_inst->o_soft_reset(s_cfg_soft_reset);
+            config_regs_inst->o_act_incntlim(s_act_incntlim);
+            config_regs_inst->o_act_incntstep(s_act_incntstep);
+            config_regs_inst->o_act_outcntlim(s_act_outcntlim);
+            config_regs_inst->o_act_outcntstep(s_act_outcntstep);
+            config_regs_inst->o_wei_incntlim(s_wei_incntlim);
+            config_regs_inst->o_wei_incntstep(s_wei_incntstep);
+            config_regs_inst->o_cxlim(s_cxlim);
+            config_regs_inst->o_cxstep(s_cxstep);
+            config_regs_inst->o_cklim(s_cklim);
+            config_regs_inst->o_ckstep(s_ckstep);
+            config_regs_inst->o_act_base_addr(s_act_base_addr);
+            config_regs_inst->o_wei_base_addr(s_wei_base_addr);
+            config_regs_inst->o_out_base_addr(s_out_base_addr);
+            config_regs_inst->o_in_h(s_in_h);
+            config_regs_inst->o_in_w(s_in_w);
+            config_regs_inst->o_in_c(s_in_c);
+            config_regs_inst->o_kernel_h(s_kernel_h);
+            config_regs_inst->o_kernel_w(s_kernel_w);
+            config_regs_inst->o_stride(s_stride);
+            config_regs_inst->o_padding(s_padding);
+            config_regs_inst->o_dilation(s_dilation);
+            config_regs_inst->o_tile_x(s_tile_x);
+            config_regs_inst->o_tile_y(s_tile_y);
+            config_regs_inst->o_tile_k(s_tile_k);
+            config_regs_inst->o_tile_c(s_tile_c);
+            config_regs_inst->o_x_used(s_x_used);
+            config_regs_inst->o_y_used(s_y_used);
 
             // 2. Host Interface Routing to SRAM
             sram_inst->i_host_addr(i_host_addr);
@@ -199,6 +228,10 @@ namespace sauria {
             act_feeder->i_srama_data(s_srama_data);
             act_feeder->o_act_arr(s_act_arr);
 
+            act_feeder->i_act_base_addr(s_act_base_addr);
+
+            wei_feeder->i_wei_incntlim(s_wei_incntlim);
+            wei_feeder->i_wei_incntstep(s_wei_incntstep);
             wei_feeder->i_feeder_en(s_wei_feeder_en);
             wei_feeder->i_feeder_clear(s_wei_feeder_clear);
             wei_feeder->i_start(s_wei_start);
@@ -220,6 +253,8 @@ namespace sauria {
             wei_feeder->o_sramb_rden(s_sramb_rden);
             wei_feeder->i_sramb_data(s_sramb_data);
             wei_feeder->o_wei_arr(s_wei_arr);
+
+            wei_feeder->i_wei_base_addr(s_wei_base_addr);
 
             // 5. SRAM Core Interface bindings (Accelerator-side)
             sram_inst->i_srama_addr(s_srama_addr);
@@ -251,7 +286,7 @@ namespace sauria {
             // 7. PSM bindings
             psm_inst->i_c_arr(s_sa_to_psm_c);
             psm_inst->o_c_arr(s_psm_to_sa_c);
-            
+
             psm_inst->i_sramc_rdata(s_sramc_rdata);
             psm_inst->o_sramc_addr(s_sramc_addr);
             psm_inst->o_sramc_wren(s_sramc_wren);
@@ -268,24 +303,23 @@ namespace sauria {
             psm_inst->o_shift_done(s_psm_shift_done);
             psm_inst->o_cscan_en(s_cscan_en);
 
+            psm_inst->i_out_base_addr(s_out_base_addr);
+
             // Connect static configurations from Config Registers
             ctrl_inst->i_incntlim(s_incntlim);
             ctrl_inst->i_act_reps(s_act_reps);
             ctrl_inst->i_wei_reps(s_wei_reps);
 
-            act_feeder->i_act_incntlim(s_incntlim);
-            act_feeder->i_act_incntstep(s_one);
-            act_feeder->i_act_outcntlim(s_incntlim);
-            act_feeder->i_act_outcntstep(s_one);
+            act_feeder->i_act_incntlim(s_act_incntlim);
+            act_feeder->i_act_incntstep(s_act_incntstep);
+            act_feeder->i_act_outcntlim(s_act_outcntlim);
+            act_feeder->i_act_outcntstep(s_act_outcntstep);
             act_feeder->i_act_dil_pat(s_dil_pat);
 
-            wei_feeder->i_wei_incntlim(s_incntlim);
-            wei_feeder->i_wei_incntstep(s_one);
-
-            psm_inst->i_cxlim(s_incntlim);
-            psm_inst->i_cxstep(s_one);
-            psm_inst->i_cklim(s_incntlim);
-            psm_inst->i_ckstep(s_one);
+            psm_inst->i_cxlim(s_cxlim);
+            psm_inst->i_cxstep(s_cxstep);
+            psm_inst->i_cklim(s_cklim);
+            psm_inst->i_ckstep(s_ckstep);
             psm_inst->i_til_cylim(s_incntlim);
             psm_inst->i_til_cystep(s_one);
             psm_inst->i_til_cklim(s_incntlim);
@@ -302,22 +336,148 @@ namespace sauria {
             config_regs_inst->o_rows_active(s_rows_active);
         }
 
-        void host_rdata_mux() {
+        void host_rdata_mux()
+        {
             uint32_t addr = i_host_addr.read();
             uint32_t mem_region = addr & SAURIA_MEM_ADDR_MASK;
-            if (mem_region == CFG_REGS_OFFSET) {
+            if (mem_region == CFG_REGS_OFFSET)
+            {
                 o_host_rdata.write(s_host_rdata_cfg.read());
-            } else {
+            }
+            else
+            {
                 o_host_rdata.write(s_host_rdata_sram.read());
             }
         }
 
-        void start_reset_logic() {
-            s_start_internal.write(i_start.read() || s_cfg_start.read());
+        void done_latch_logic()
+        {
+            bool reset_active =
+                !i_rstn.read() ||
+                i_soft_reset.read() ||
+                s_cfg_soft_reset.read();
+
+            bool new_start =
+                s_start_internal.read();
+
+            if (reset_active || new_start)
+            {
+                done_latched_reg = false;
+            }
+            else if (s_ctrl_done.read())
+            {
+                done_latched_reg = true;
+
+                std::cout << "[NPU_TOP] DONE latched from controller"
+                          << std::endl;
+            }
+
+            o_done.write(done_latched_reg || s_ctrl_done.read());
+        }
+
+        void debug_execution_monitor()
+        {
+            bool running = false;
+            int cycle = 0;
+
+            while (true)
+            {
+                wait(i_clk.posedge_event());
+
+                if (s_start_internal.read() && !running)
+                {
+                    running = true;
+                    cycle = 0;
+
+                    std::cout << "\n[NPU_TOP DEBUG] Execution monitor started"
+                              << std::endl;
+                }
+
+                if (running)
+                {
+                    cycle++;
+
+                    if ((cycle % 100) == 0)
+                    {
+                        std::cout << "[NPU_TOP DEBUG] cycle=" << cycle
+                                  << " start=" << s_start_internal.read()
+                                  << " done=" << o_done.read()
+                                  << std::endl;
+                    }
+
+                    if (o_done.read())
+                    {
+                        std::cout << "[NPU_TOP DEBUG] DONE at cycle "
+                                  << cycle << std::endl;
+                        running = false;
+                    }
+
+                    if (cycle == 20000)
+                    {
+                        std::cout << "[NPU_TOP DEBUG] TIMEOUT monitor reached 20000 cycles"
+                                  << std::endl;
+                    }
+                }
+            }
+        }
+
+        void start_reset_logic()
+        {
+            bool start_val = i_start.read() || s_cfg_start.read();
+
+            static bool prev_start = false;
+
+            if (start_val && !prev_start)
+            {
+                std::cout << "\n=========================================\n";
+                std::cout << "NPU TOP RUNTIME CONFIGURATION AT START\n";
+                std::cout << "=========================================\n";
+
+                std::cout << "\nSTART SOURCE\n";
+                std::cout << "i_start     : " << i_start.read() << "\n";
+                std::cout << "s_cfg_start : " << s_cfg_start.read() << "\n";
+
+                std::cout << "\nCONTROL\n";
+                std::cout << "INCNTLIM    : " << s_incntlim.read() << "\n";
+                std::cout << "ACT_REPS    : " << s_act_reps.read() << "\n";
+                std::cout << "WEI_REPS    : " << s_wei_reps.read() << "\n";
+
+                std::cout << "\nACTIVATION\n";
+                std::cout << "ACT_INCNTLIM   : " << s_act_incntlim.read() << "\n";
+                std::cout << "ACT_INCNTSTEP  : " << s_act_incntstep.read() << "\n";
+                std::cout << "ACT_OUTCNTLIM  : " << s_act_outcntlim.read() << "\n";
+                std::cout << "ACT_OUTCNTSTEP : " << s_act_outcntstep.read() << "\n";
+                std::cout << "DIL_PAT        : 0x"
+                          << std::hex << s_dil_pat.read().to_uint64()
+                          << std::dec << "\n";
+                std::cout << "ROWS_ACTIVE    : " << s_rows_active.read() << "\n";
+
+                std::cout << "\nWEIGHT\n";
+                std::cout << "WEI_INCNTLIM   : " << s_wei_incntlim.read() << "\n";
+                std::cout << "WEI_INCNTSTEP  : " << s_wei_incntstep.read() << "\n";
+
+                std::cout << "\nPSUM\n";
+                std::cout << "CXLIM          : " << s_cxlim.read() << "\n";
+                std::cout << "CXSTEP         : " << s_cxstep.read() << "\n";
+                std::cout << "CKLIM          : " << s_cklim.read() << "\n";
+                std::cout << "CKSTEP         : " << s_ckstep.read() << "\n";
+
+                std::cout << "\nMEMORY MAP\n";
+                std::cout << "ACT_BASE_ADDR  : " << s_act_base_addr.read() << "\n";
+                std::cout << "WEI_BASE_ADDR  : " << s_wei_base_addr.read() << "\n";
+                std::cout << "OUT_BASE_ADDR  : " << s_out_base_addr.read() << "\n";
+
+                std::cout << "=========================================\n\n";
+            }
+
+            prev_start = start_val;
+
+            s_start_internal.write(start_val);
             s_ctrl_reset_internal.write(i_soft_reset.read() || s_cfg_soft_reset.read());
         }
 
-        ~NpuTop() {
+        ~NpuTop()
+        {
             delete sram_inst;
             delete ctrl_inst;
             delete act_feeder;
@@ -327,15 +487,17 @@ namespace sauria {
             delete config_regs_inst;
         }
 
-        void trace(sc_trace_file* tf) {
-            if (!tf) return;
+        void trace(sc_trace_file *tf)
+        {
+            if (!tf)
+                return;
             // Trace configurations
             sc_trace(tf, i_start, std::string(name()) + ".i_start");
             sc_trace(tf, o_done, std::string(name()) + ".o_done");
             sc_trace(tf, o_deadlock, std::string(name()) + ".o_deadlock");
             sc_trace(tf, i_threshold, std::string(name()) + ".i_threshold");
             sc_trace(tf, i_select, std::string(name()) + ".i_select");
-            
+
             // Trace internal signals
             sc_trace(tf, s_act_feeder_en, std::string(name()) + ".s_act_feeder_en");
             sc_trace(tf, s_act_start, std::string(name()) + ".s_act_start");
@@ -351,7 +513,7 @@ namespace sauria {
             sc_trace(tf, s_psm_done, std::string(name()) + ".s_psm_done");
             sc_trace(tf, s_psm_shift_done, std::string(name()) + ".s_psm_shift_done");
             sc_trace(tf, s_psm_finalwrite, std::string(name()) + ".s_psm_finalwrite");
-            
+
             // Trace memory controls
             sc_trace(tf, s_srama_addr, std::string(name()) + ".s_srama_addr");
             sc_trace(tf, s_srama_rden, std::string(name()) + ".s_srama_rden");
@@ -360,7 +522,7 @@ namespace sauria {
             sc_trace(tf, s_sramc_addr, std::string(name()) + ".s_sramc_addr");
             sc_trace(tf, s_sramc_wren, std::string(name()) + ".s_sramc_wren");
             sc_trace(tf, s_sramc_rden, std::string(name()) + ".s_sramc_rden");
-            
+
             // Trace data vectors
             sc_trace(tf, s_act_arr, std::string(name()) + ".s_act_arr");
             sc_trace(tf, s_wei_arr, std::string(name()) + ".s_wei_arr");
@@ -369,31 +531,37 @@ namespace sauria {
 
     private:
         // Submodules instances
-        Sram<X_DIM, Y_DIM, T_ACT, T_WEI, T_PSUM, SRAMA_CAP, SRAMB_CAP, SRAMC_CAP>* sram_inst{nullptr};
-        Control<X_DIM, Y_DIM, PE_LAT, EXTRA_CSREG>*                               ctrl_inst{nullptr};
-        IfmapFeeder<Y_DIM, T_ACT, SRAMA_CAP, FIFO_DEPTH>*                         act_feeder{nullptr};
-        WeightFeeder<X_DIM, T_WEI, SRAMB_CAP, FIFO_DEPTH>*                        wei_feeder{nullptr};
-        SystolicArray<X_DIM, Y_DIM, T_ACT, T_WEI, T_PSUM>*                        array_inst{nullptr};
-        Psm<X_DIM, Y_DIM, T_PSUM, SRAMC_CAP>*                                     psm_inst{nullptr};
-        ConfigRegs<32, 32, X_DIM, Y_DIM, 2, 15, 15, 15, 8, DILP_W, 8>*            config_regs_inst{nullptr};
+        Sram<X_DIM, Y_DIM, T_ACT, T_WEI, T_PSUM, SRAMA_CAP, SRAMB_CAP, SRAMC_CAP> *sram_inst{nullptr};
+        Control<X_DIM, Y_DIM, PE_LAT, EXTRA_CSREG> *ctrl_inst{nullptr};
+        IfmapFeeder<Y_DIM, T_ACT, SRAMA_CAP, FIFO_DEPTH> *act_feeder{nullptr};
+        WeightFeeder<X_DIM, T_WEI, SRAMB_CAP, FIFO_DEPTH> *wei_feeder{nullptr};
+        SystolicArray<X_DIM, Y_DIM, T_ACT, T_WEI, T_PSUM> *array_inst{nullptr};
+        Psm<X_DIM, Y_DIM, T_PSUM, SRAMC_CAP> *psm_inst{nullptr};
+        ConfigRegs<32, 32, X_DIM, Y_DIM, 2, 15, 15, 15, DILP_W, 8> *config_regs_inst{nullptr};
+
+        // Internal signals for inter-module communication (memory)
+        sc_signal<uint32_t> s_act_base_addr;
+        sc_signal<uint32_t> s_wei_base_addr;
+        sc_signal<uint32_t> s_out_base_addr;
 
         // Host mux and FSM handshake internal signals
         sc_signal<host_data_t> s_host_rdata_sram{"s_host_rdata_sram"};
         sc_signal<host_data_t> s_host_rdata_cfg{"s_host_rdata_cfg"};
         sc_signal<bool> s_ctrl_done{"s_ctrl_done"};
+        bool done_latched_reg{false};
         sc_signal<bool> s_cfg_start{"s_cfg_start"};
         sc_signal<bool> s_cfg_soft_reset{"s_cfg_soft_reset"};
         sc_signal<bool> s_start_internal{"s_start_internal"};
         sc_signal<bool> s_ctrl_reset_internal{"s_ctrl_reset_internal"};
 
         // Static parameter simulation ports/signals
-        sc_signal<bool>     s_false{"s_false", false};
+        sc_signal<bool> s_false{"s_false", false};
         sc_signal<uint32_t> s_incntlim{"s_incntlim"};
         sc_signal<uint32_t> s_act_reps{"s_act_reps"};
         sc_signal<uint32_t> s_wei_reps{"s_wei_reps"};
         sc_signal<uint32_t> s_one{"s_one", 1};
         sc_signal<sc_bv<DILP_W>> s_dil_pat{"s_dil_pat"};
-        sc_signal<sramc_mask_t<Y_DIM>>  s_rows_active{"s_rows_active"};
+        sc_signal<sramc_mask_t<Y_DIM>> s_rows_active{"s_rows_active"};
 
         // Internal Signals: Controller <-> Feeders
         sc_signal<bool> s_act_feeder_en{"s_act_feeder_en"};
@@ -406,6 +574,10 @@ namespace sauria {
         sc_signal<bool> s_act_clearfifo{"s_act_clearfifo"};
         sc_signal<bool> s_act_pop_en{"s_act_pop_en"};
         sc_signal<bool> s_act_finalctx{"s_act_finalctx"};
+        sc_signal<uint32_t> s_act_incntlim{"s_act_incntlim"};
+        sc_signal<uint32_t> s_act_incntstep{"s_act_incntstep"};
+        sc_signal<uint32_t> s_act_outcntlim{"s_act_outcntlim"};
+        sc_signal<uint32_t> s_act_outcntstep{"s_act_outcntstep"};
 
         sc_signal<bool> s_wei_feeder_en{"s_wei_feeder_en"};
         sc_signal<bool> s_wei_feeder_clear{"s_wei_feeder_clear"};
@@ -417,14 +589,16 @@ namespace sauria {
         sc_signal<bool> s_wei_clearfifo{"s_wei_clearfifo"};
         sc_signal<bool> s_wei_pop_en{"s_wei_pop_en"};
         sc_signal<bool> s_wei_cswitch{"s_wei_cswitch"};
+        sc_signal<uint32_t> s_wei_incntlim{"s_wei_incntlim"};
+        sc_signal<uint32_t> s_wei_incntstep{"s_wei_incntstep"};
 
         // Internal Signals: Controller <-> PSM
         sc_signal<bool> s_psm_start{"s_psm_start"};
         sc_signal<bool> s_psm_reset{"s_psm_reset"};
 
         // Internal Signals: Controller <-> Systolic Array
-        sc_signal<bool>         s_sa_clear{"s_sa_clear"};
-        sc_signal<bool>         s_pipeline_en{"s_pipeline_en"};
+        sc_signal<bool> s_sa_clear{"s_sa_clear"};
+        sc_signal<bool> s_pipeline_en{"s_pipeline_en"};
         sc_signal<sc_bv<X_DIM>> s_cswitch_arr{"s_cswitch_arr"};
 
         // Internal Signals: Feeders <-> Control (Feedbacks)
@@ -446,21 +620,26 @@ namespace sauria {
         sc_signal<bool> s_psm_shift_done{"s_psm_shift_done"};
         sc_signal<bool> s_cscan_en{"s_cscan_en"};
 
+        sc_signal<uint32_t> s_cxlim{"s_cxlim"};
+        sc_signal<uint32_t> s_cxstep{"s_cxstep"};
+        sc_signal<uint32_t> s_cklim{"s_cklim"};
+        sc_signal<uint32_t> s_ckstep{"s_ckstep"};
+
         // Internal Signals: Feeders <-> SRAM
-        sc_signal<uint32_t>                 s_srama_addr{"s_srama_addr"};
-        sc_signal<bool>                     s_srama_rden{"s_srama_rden"};
+        sc_signal<uint32_t> s_srama_addr{"s_srama_addr"};
+        sc_signal<bool> s_srama_rden{"s_srama_rden"};
         sc_signal<act_vector_t<Y_DIM, T_ACT>> s_srama_data{"s_srama_data"};
 
-        sc_signal<uint32_t>                 s_sramb_addr{"s_sramb_addr"};
-        sc_signal<bool>                     s_sramb_rden{"s_sramb_rden"};
+        sc_signal<uint32_t> s_sramb_addr{"s_sramb_addr"};
+        sc_signal<bool> s_sramb_rden{"s_sramb_rden"};
         sc_signal<wei_vector_t<X_DIM, T_WEI>> s_sramb_data{"s_sramb_data"};
 
         // Internal Signals: PSM <-> SRAM
         sc_signal<psum_vector_t<Y_DIM, T_PSUM>> s_sramc_wdata{"s_sramc_wdata"};
-        sc_signal<uint32_t>                      s_sramc_addr{"s_sramc_addr"};
-        sc_signal<bool>                          s_sramc_wren{"s_sramc_wren"};
-        sc_signal<bool>                          s_sramc_rden{"s_sramc_rden"};
-        sc_signal<sramc_mask_t<Y_DIM>>           s_sramc_wmask{"s_sramc_wmask"};
+        sc_signal<uint32_t> s_sramc_addr{"s_sramc_addr"};
+        sc_signal<bool> s_sramc_wren{"s_sramc_wren"};
+        sc_signal<bool> s_sramc_rden{"s_sramc_rden"};
+        sc_signal<sramc_mask_t<Y_DIM>> s_sramc_wmask{"s_sramc_wmask"};
         sc_signal<psum_vector_t<Y_DIM, T_PSUM>> s_sramc_rdata{"s_sramc_rdata"};
 
         // Internal Signals: Feeders <-> Systolic Array
@@ -470,6 +649,26 @@ namespace sauria {
         // Internal Signals: PSM <-> Systolic Array
         sc_signal<psum_vector_t<Y_DIM, T_PSUM>> s_psm_to_sa_c{"s_psm_to_sa_c"};
         sc_signal<psum_vector_t<Y_DIM, T_PSUM>> s_sa_to_psm_c{"s_sa_to_psm_c"};
+
+        // [Run - time(Layer config)]: internal signals
+        sc_signal<uint32_t> s_in_h{"s_in_h"};
+        sc_signal<uint32_t> s_in_w{"s_in_w"};
+        sc_signal<uint32_t> s_in_c{"s_in_c"};
+
+        sc_signal<uint32_t> s_kernel_h{"s_kernel_h"};
+        sc_signal<uint32_t> s_kernel_w{"s_kernel_w"};
+
+        sc_signal<uint32_t> s_stride{"s_stride"};
+        sc_signal<uint32_t> s_padding{"s_padding"};
+        sc_signal<uint32_t> s_dilation{"s_dilation"};
+
+        sc_signal<uint32_t> s_tile_x{"s_tile_x"};
+        sc_signal<uint32_t> s_tile_y{"s_tile_y"};
+        sc_signal<uint32_t> s_tile_k{"s_tile_k"};
+        sc_signal<uint32_t> s_tile_c{"s_tile_c"};
+
+        sc_signal<uint32_t> s_x_used{"s_x_used"};
+        sc_signal<uint32_t> s_y_used{"s_y_used"};
     };
 
 } // namespace sauria

@@ -41,6 +41,7 @@ namespace sauria {
         sc_out<uint32_t>                 o_sramb_addr{"o_sramb_addr"};
         sc_out<bool>                     o_sramb_rden{"o_sramb_rden"};
         sc_in<wei_vector_t<X_DIM, T_WEI>> i_sramb_data{"i_sramb_data"};
+        sc_in<uint32_t> i_wei_base_addr{"i_wei_base_addr"};
 
         // Wavefront Output Vector towards Systolic Array (B ports)
         sc_out<wei_vector_t<X_DIM, T_WEI>> o_wei_arr{"o_wei_arr"};
@@ -100,7 +101,9 @@ namespace sauria {
 
             if (i_cnt_en.read()) {
                 o_sramb_rden.write(true);
-                o_sramb_addr.write(addr_reg);
+                //o_sramb_addr.write(addr_reg);
+                std::cout << "[DEBUG WEIGHT] base=" << i_wei_base_addr.read()<< " addr_reg=" << addr_reg << " final_addr=" << i_wei_base_addr.read() + addr_reg<< std::endl;
+                o_sramb_addr.write(i_wei_base_addr.read() + addr_reg);
                 addr_reg += i_wei_incntstep.read();
                 rdata_valid = rden_q;
                 rden_q = true;

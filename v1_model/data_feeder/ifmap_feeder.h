@@ -8,15 +8,16 @@
 #include <queue>
 #include <vector>
 
-namespace sauria {
+namespace sauria
+{
 
     template <
         int Y_DIM = 32,
         typename T_ACT = float,
         int SRAMA_CAP = 1024,
-        int FIFO_DEPTH = 16
-    >
-    class IfmapFeeder : public sc_module {
+        int FIFO_DEPTH = 16>
+    class IfmapFeeder : public sc_module
+    {
     public:
         // Clock & Reset
         sc_in<bool> i_clk{"i_clk"};
@@ -42,9 +43,10 @@ namespace sauria {
         sc_in<sc_bv<DILP_W>> i_act_dil_pat{"i_act_dil_pat"};
 
         // Memory Interface to SRAM A
-        sc_out<uint32_t>                 o_srama_addr{"o_srama_addr"};
-        sc_out<bool>                     o_srama_rden{"o_srama_rden"};
+        sc_out<uint32_t> o_srama_addr{"o_srama_addr"};
+        sc_out<bool> o_srama_rden{"o_srama_rden"};
         sc_in<act_vector_t<Y_DIM, T_ACT>> i_srama_data{"i_srama_data"};
+        sc_in<uint32_t> i_act_base_addr{"i_act_base_addr"};
 
         // Wavefront Output Vector towards Systolic Array (A ports)
         sc_out<act_vector_t<Y_DIM, T_ACT>> o_act_arr{"o_act_arr"};
@@ -56,7 +58,8 @@ namespace sauria {
         sc_out<bool> o_fifo_full{"o_fifo_full"};
         sc_out<bool> o_stall{"o_stall"};
 
-        SC_CTOR(IfmapFeeder) {
+        SC_CTOR(IfmapFeeder)
+        {
             SC_METHOD(feeder_process);
             sensitive << i_clk.pos();
         }
@@ -64,19 +67,25 @@ namespace sauria {
     private:
         // Internal FIFOs for each of the Y rows
         std::queue<T_ACT> row_fifos[Y_DIM];
-        
+
         // Dynamic skew delay registers for systolic wavefront (A-side)
         std::vector<T_ACT> skew_regs[Y_DIM];
 
         // Address tracking register
         uint32_t addr_reg{0};
 
+        // local variable
+        uint32_t incnt{0};
+        uint32_t dil_idx{0};
+
         // SRAM read latency matching registers
         bool rden_q{false};
-        bool rdata_valid{false};
+        bool cnt_clear_q{false};
 
-        void feeder_process() {
-            if (!i_rstn.read() || i_feeder_clear.read() || i_clearfifo.read()) {
+        void feeder_process()
+        {
+            if (!i_rstn.read() || i_feeder_clear.read() || i_clearfifo.read())
+            {
                 o_srama_addr.write(0);
                 o_srama_rden.write(false);
                 o_act_arr.write(act_vector_t<Y_DIM, T_ACT>(static_cast<T_ACT>(0)));
@@ -86,68 +95,172 @@ namespace sauria {
                 o_fifo_full.write(false);
                 o_stall.write(false);
                 addr_reg = 0;
+                incnt = 0;
+                dil_idx = 0;
                 rden_q = false;
-                rdata_valid = false;
-                for (int i = 0; i < Y_DIM; i++) {
-                    while (!row_fifos[i].empty()) row_fifos[i].pop();
+                for (int i = 0; i < Y_DIM; i++)
+                {
+                    while (!row_fifos[i].empty())
+                        row_fifos[i].pop();
                     skew_regs[i].assign(i, static_cast<T_ACT>(0)); // Delay length matches row index i
                 }
                 return;
             }
 
-            if (!i_feeder_en.read()) return;
+            if (!i_feeder_en.read())
+            {
+                o_srama_rden.write(false);
+                o_act_arr.write(act_vector_t<Y_DIM, T_ACT>(static_cast<T_ACT>(0)));
+                return;
+            }
 
+            o_srama_rden.write(false);
+
+            bool cnt_clear_now = i_cnt_clear.read();
+            bool cnt_clear_pulse = cnt_clear_now && !cnt_clear_q;
+            cnt_clear_q = cnt_clear_now;
+
+            if (cnt_clear_pulse)
+            {
+                addr_reg = 0;
+                incnt = 0;
+                dil_idx = 0;
+                rden_q = false;
+                o_srama_rden.write(false);
+
+                static int dbg_clear_count = 0;
+                if (dbg_clear_count < 32)
+                {
+                    std::cout << "[IFMAP CLEAR PULSE]"
+                              << " feeder_en=" << i_feeder_en.read()
+                              << " cnt_en=" << i_cnt_en.read()
+                              << " addr_reg reset to 0"
+                              << std::endl;
+                }
+                dbg_clear_count++;
+            }
+
+            bool mem_data_valid = rden_q;
+            rden_q = false;
             // 1. Fetch activation vector from SRAM A into FIFOs
-            if (rdata_valid) {
+            if (mem_data_valid)
+            {
                 // Read from memory and push into FIFOs (contains valid data from previous cycle's read)
                 act_vector_t<Y_DIM, T_ACT> mem_data = i_srama_data.read();
-                for (int y = 0; y < Y_DIM; y++) {
+                for (int y = 0; y < Y_DIM; y++)
+                {
                     row_fifos[y].push(mem_data[y]);
                 }
             }
 
-            if (i_cnt_en.read()) {
-                o_srama_rden.write(true);
-                o_srama_addr.write(addr_reg);
-                addr_reg += i_act_incntstep.read();
-                rdata_valid = rden_q;
-                rden_q = true;
-            } else {
+            if (i_cnt_en.read())
+            {
+                bool within_limit = (incnt < i_act_incntlim.read());
+
+                sc_bv<DILP_W> dil = i_act_dil_pat.read();
+                bool dil_allow = true;
+
+                bool dil_all_zero = true;
+                for (int i = 0; i < DILP_W; i++)
+                {
+                    if (dil[i] == sc_dt::Log_1)
+                    {
+                        dil_all_zero = false;
+                        break;
+                    }
+                }
+
+                if (!dil_all_zero)
+                    dil_allow = (dil[dil_idx % DILP_W] == sc_dt::Log_1);
+                // if(DILP_W >0){
+                //     dil_allow = (dil[dil_idx % DILP_W] == sc_dt::Log_1);
+                // }
+
+                if (within_limit && dil_allow)
+                {
+                    uint32_t final_addr = i_act_base_addr.read() + addr_reg;
+                    o_srama_rden.write(true);
+                    o_srama_addr.write(final_addr);
+
+                    static int dbg_ifmap_read_count = 0;
+
+                    if (dbg_ifmap_read_count < 64)
+                    {
+                        std::cout << "[DEBUG IFMAP] read_count=" << dbg_ifmap_read_count
+                                  << " feeder_en=" << i_feeder_en.read()
+                                  << " cnt_en=" << i_cnt_en.read()
+                                  << " cnt_clear=" << i_cnt_clear.read()
+                                  << " base=" << i_act_base_addr.read()
+                                  << " addr_reg=" << addr_reg
+                                  << " final_addr=" << final_addr
+                                  << " incnt=" << incnt
+                                  << " limit=" << i_act_incntlim.read()
+                                  << " step=" << i_act_incntstep.read()
+                                  << " dil_idx=" << dil_idx
+                                  << std::endl;
+                    }
+
+                    dbg_ifmap_read_count++;
+
+                    addr_reg += i_act_incntstep.read();
+                    incnt++;
+                    rden_q = true;
+                }
+                else
+                {
+                    o_srama_rden.write(false);
+                    rden_q = false;
+
+                    // std::cout << "[DEBUG IFMAP SKIP] incnt=" << incnt
+                    //           << " dil_idx=" << dil_idx
+                    //           << " within_limit=" << within_limit
+                    //           << " dil_allow=" << dil_allow
+                    //           << std::endl;
+                }
+                dil_idx++;
+            }
+            else
+            {
                 o_srama_rden.write(false);
-                rdata_valid = rden_q;
                 rden_q = false;
             }
 
             // 2. Pop and Shift Activations (Wavefront Skew Lines)
-            if (i_pop_en.read()) {
+            if (i_pop_en.read())
+            {
                 act_vector_t<Y_DIM, T_ACT> act_out;
-                for (int y = 0; y < Y_DIM; y++) {
+                for (int y = 0; y < Y_DIM; y++)
+                {
                     T_ACT popped = static_cast<T_ACT>(0);
-                    if (!row_fifos[y].empty()) {
+                    if (!row_fifos[y].empty())
+                    {
                         popped = row_fifos[y].front();
                         row_fifos[y].pop();
                     }
 
                     // Shift wavefront skew register line
                     skew_regs[y].push_back(popped);
-                    
+
                     // Wavefront output is the front of the delay line (length y)
                     T_ACT out_val = (y == 0) ? popped : skew_regs[y].front();
-                    
-                    if (y > 0) {
+
+                    if (y > 0)
+                    {
                         skew_regs[y].erase(skew_regs[y].begin());
                     }
-                    
+
                     act_out[y] = out_val;
                 }
                 o_act_arr.write(act_out);
-            } else {
+            }
+            else
+            {
                 o_act_arr.write(act_vector_t<Y_DIM, T_ACT>(static_cast<T_ACT>(0)));
             }
 
             // 3. Update status flags
             bool empty = row_fifos[0].empty();
-            bool full  = row_fifos[0].size() >= FIFO_DEPTH;
+            bool full = row_fifos[0].size() >= FIFO_DEPTH;
             o_fifo_empty.write(empty);
             o_fifo_full.write(full);
         }

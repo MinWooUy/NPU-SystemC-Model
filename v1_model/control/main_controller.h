@@ -6,15 +6,16 @@
 
 #include "sauria_types.h"
 
-namespace sauria {
+namespace sauria
+{
 
     template <
         int X_DIM = 32,
         int Y_DIM = 32,
         int PE_LAT = X_DIM + Y_DIM,
-        int EXTRA_CSREG = 1
-    >
-    class Control : public sc_module {
+        int EXTRA_CSREG = 1>
+    class Control : public sc_module
+    {
     public:
         // Clock & Reset
         sc_in<bool> i_clk{"i_clk"};
@@ -22,7 +23,7 @@ namespace sauria {
         sc_in<bool> i_soft_reset{"i_soft_reset"};
 
         // Host Control Inputs
-        sc_in<bool> i_start{"i_start"};             // Starts NPU execution
+        sc_in<bool> i_start{"i_start"}; // Starts NPU execution
 
         // Output Buffer feedback
         sc_in<bool> i_outbuf_done{"i_outbuf_done"};
@@ -75,22 +76,24 @@ namespace sauria {
         sc_out<bool> o_outbuf_reset{"o_outbuf_reset"};
 
         // Systolic Array Control Outputs
-        sc_out<bool>        o_sa_clear{"o_sa_clear"};
-        sc_out<bool>        o_pipeline_en{"o_pipeline_en"};
+        sc_out<bool> o_sa_clear{"o_sa_clear"};
+        sc_out<bool> o_pipeline_en{"o_pipeline_en"};
         sc_out<sc_bv<X_DIM>> o_cswitch_arr{"o_cswitch_arr"};
 
         // General Done status out
         sc_out<bool> o_done{"o_done"};
         sc_out<bool> o_feed_deadlock{"o_feed_deadlock"};
 
-        SC_CTOR(Control) {
+        SC_CTOR(Control)
+        {
             SC_METHOD(ctrl_process);
             sensitive << i_clk.pos();
         }
 
     private:
         // Internal Context FSM states matching context_fsm.sv
-        enum ctrl_state_t {
+        enum ctrl_state_t
+        {
             IDLE,
             START_FLAGS,
             ARRAY_PREP,
@@ -116,17 +119,22 @@ namespace sauria {
         };
 
         ctrl_state_t state{IDLE};
+        ctrl_state_t prev_state{IDLE};
+        uint32_t dbg_cycle{0};
         uint32_t cycle_cnt{0};
         uint32_t comp_cycles{0};
         uint32_t shift_cycles{0};
 
-        void ctrl_process() {
-            if (!i_rstn.read() || i_soft_reset.read()) {
+        void ctrl_process()
+        {
+            if (!i_rstn.read() || i_soft_reset.read())
+            {
                 state = IDLE;
                 cycle_cnt = 0;
                 comp_cycles = 0;
                 shift_cycles = 0;
-                
+                dbg_cycle = 0;
+
                 o_act_feeder_en.write(false);
                 o_act_feeder_clear.write(true);
                 o_act_start.write(false);
@@ -155,9 +163,11 @@ namespace sauria {
                 o_sa_clear.write(true);
                 o_pipeline_en.write(false);
                 o_cswitch_arr.write(sc_bv<X_DIM>(0));
-                
+
                 o_done.write(false);
                 o_feed_deadlock.write(false);
+
+                prev_state = IDLE;
                 return;
             }
 
@@ -169,99 +179,145 @@ namespace sauria {
             // Fetch limits from registers
             uint32_t incntlim = i_incntlim.read();
 
-            switch (state) {
-                case IDLE:
-                    o_done.write(false);
-                    o_sa_clear.write(false);
-                    o_act_feeder_clear.write(false);
-                    o_act_clearfifo.write(false);
-                    o_wei_feeder_clear.write(false);
-                    o_wei_clearfifo.write(false);
-                    o_outbuf_reset.write(false);
+            dbg_cycle++;
 
-                    if (i_start.read()) {
-                        state = START_FLAGS;
-                        cycle_cnt = 0;
-                    }
-                    break;
+            if ((dbg_cycle % 100) == 0)
+            {
+                std::cout << "[CTRL DEBUG] cycle=" << dbg_cycle
+                          << " state=" << state
+                          << " start=" << i_start.read()
+                          << " incntlim=" << i_incntlim.read()
+                          << " act_reps=" << i_act_reps.read()
+                          << " wei_reps=" << i_wei_reps.read()
+                          << " act_cnt_en=" << o_act_cnt_en.read()
+                          << " wei_cnt_en=" << o_wei_cnt_en.read()
+                          << " act_pop_en=" << o_act_pop_en.read()
+                          << " wei_pop_en=" << o_wei_pop_en.read()
+                          << " psm_start=" << o_outbuf_start.read()
+                          << " shift_done=" << i_shift_done.read()
+                          << " done=" << o_done.read()
+                          << std::endl;
+            }
 
-                case START_FLAGS:
-                    // Enable feeders and pulse start
-                    o_act_feeder_en.write(true);
-                    o_wei_feeder_en.write(true);
-                    o_act_start.write(true);
-                    o_wei_start.write(true);
-                    o_act_valid.write(true);
-                    o_wei_valid.write(true);
-                    o_pipeline_en.write(true);
-                    state = ARRAY_PREP;
-                    break;
+            switch (state)
+            {
+            case IDLE:
+                o_done.write(false);
+                o_sa_clear.write(false);
+                o_act_feeder_clear.write(false);
+                o_act_clearfifo.write(false);
+                o_wei_feeder_clear.write(false);
+                o_wei_clearfifo.write(false);
+                o_outbuf_reset.write(false);
 
-                case ARRAY_PREP:
-                    o_act_start.write(false);
-                    o_wei_start.write(false);
-                    o_act_cnt_en.write(true);
-                    o_wei_cnt_en.write(true);
-                    o_act_pop_en.write(true);
-                    o_wei_pop_en.write(true);
-                    comp_cycles = 0;
-                    state = START_COMP;
-                    break;
-
-                case START_COMP:
-                    comp_cycles++;
-                    // Run computation for loop tile limit (incntlim)
-                    if (comp_cycles >= incntlim) {
-                        state = ARRAY_CSWITCH;
-                    }
-                    break;
-
-                case ARRAY_CSWITCH:
-                    // Pulse accumulator Context Switch to grid elements
-                    o_cswitch_arr.write(sc_bv<X_DIM>(~0)); // Write 1s to swap context
-                    o_act_pop_en.write(false);
-                    o_wei_pop_en.write(false);
-                    o_act_cnt_en.write(false);
-                    o_wei_cnt_en.write(false);
+                if (i_start.read())
+                {
+                    state = START_FLAGS;
                     cycle_cnt = 0;
-                    state = WAIT_CSWITCH;
-                    break;
+                }
+                break;
 
-                case WAIT_CSWITCH:
-                    o_cswitch_arr.write(sc_bv<X_DIM>(0)); // Deassert context switch
-                    cycle_cnt++;
-                    if (cycle_cnt >= (uint32_t)(PE_LAT)) {
-                        state = WAIT_OBUF;
-                    }
-                    break;
+            case START_FLAGS:
+                // Enable feeders and pulse start
+                o_act_feeder_en.write(true);
+                o_wei_feeder_en.write(true);
+                o_act_start.write(true);
+                o_wei_start.write(true);
+                o_act_valid.write(true);
+                o_wei_valid.write(true);
+                o_pipeline_en.write(true);
+                state = ARRAY_PREP;
+                break;
 
-                case WAIT_OBUF:
-                    o_cswitch_arr.write(sc_bv<X_DIM>(0)); // Deassert context switch
-                    o_outbuf_start.write(true);       // Start PSM collection
-                    shift_cycles = 0;
-                    state = LAST_WAIT;
-                    break;
+            case ARRAY_PREP:
+                o_act_start.write(false);
+                o_wei_start.write(false);
+                o_act_cnt_en.write(true);
+                o_wei_cnt_en.write(true);
+                o_act_pop_en.write(true);
+                o_wei_pop_en.write(true);
+                comp_cycles = 0;
+                state = START_COMP;
+                break;
 
-                case LAST_WAIT:
-                    o_outbuf_start.write(false);
-                    shift_cycles++;
-                    // Wait for systolic array outputs to completely shift out via scan-chain
-                    if (shift_cycles >= (uint32_t)(PE_LAT + 8)) {
-                        state = DONE;
-                    }
-                    break;
+            case START_COMP:
+                comp_cycles++;
+                // Run computation for loop tile limit (incntlim)
+                if (comp_cycles >= incntlim)
+                {
+                    state = ARRAY_CSWITCH;
+                }
+                break;
 
-                case DONE:
-                    o_done.write(true);
-                    o_act_feeder_en.write(false);
-                    o_wei_feeder_en.write(false);
-                    o_pipeline_en.write(false);
+            case ARRAY_CSWITCH:
+                // Pulse accumulator Context Switch to grid elements
+                o_cswitch_arr.write(sc_bv<X_DIM>(~0)); // Write 1s to swap context
+                o_act_pop_en.write(false);
+                o_wei_pop_en.write(false);
+                o_act_cnt_en.write(false);
+                o_wei_cnt_en.write(false);
+                cycle_cnt = 0;
+                state = WAIT_CSWITCH;
+                break;
+
+            case WAIT_CSWITCH:
+                o_cswitch_arr.write(sc_bv<X_DIM>(0)); // Deassert context switch
+                cycle_cnt++;
+                if (cycle_cnt >= (uint32_t)(PE_LAT))
+                {
+                    state = WAIT_OBUF;
+                }
+                break;
+
+            case WAIT_OBUF:
+                o_cswitch_arr.write(sc_bv<X_DIM>(0)); // Deassert context switch
+                o_outbuf_start.write(true);           // Start PSM collection
+                shift_cycles = 0;
+                state = LAST_WAIT;
+                break;
+
+            case LAST_WAIT:
+                o_outbuf_start.write(false);
+                shift_cycles++;
+                // Wait for systolic array outputs to completely shift out via scan-chain
+                if (shift_cycles >= (uint32_t)(PE_LAT + 8))
+                {
+                    state = DONE;
+                }
+                break;
+
+            case DONE:
+                o_done.write(true);
+                o_act_feeder_en.write(false);
+                o_wei_feeder_en.write(false);
+                o_act_cnt_en.write(false);
+                o_wei_cnt_en.write(false);
+                o_act_pop_en.write(false);
+                o_wei_pop_en.write(false);
+                o_outbuf_start.write(false);
+                o_pipeline_en.write(false);
+
+                if (!i_start.read())
+                {
                     state = IDLE;
-                    break;
+                }
+                break;
 
-                default:
-                    state = IDLE;
-                    break;
+            default:
+                state = IDLE;
+                break;
+            }
+
+            if (state != prev_state)
+            {
+                std::cout << "[CTRL STATE] "
+                          << prev_state
+                          << " -> "
+                          << state
+                          << " at cycle "
+                          << dbg_cycle
+                          << std::endl;
+                prev_state = state;
             }
         }
     };

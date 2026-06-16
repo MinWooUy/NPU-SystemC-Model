@@ -81,6 +81,9 @@ public:
     sc_out<bool> o_fsm_reset{"o_fsm_reset"};
     sc_out<bool> o_pipeline_en{"o_pipeline_en"};
 
+    // memory
+    sc_out<uint32_t> o_out_base_addr{"o_out_base_addr"};
+
     // Signals from PSM
     sc_in<bool> i_done{"i_done"};
     sc_in<bool> i_finalwrite{"i_finalwrite"};
@@ -117,6 +120,7 @@ private:
         o_til_ckstep.write(1);
         o_ncontexts.write(1);
         o_preload_en.write(false);
+        o_out_base_addr.write(0);
         
         sramc_mask_t<4> active_mask(true); // Enable all 4 rows
         o_rows_active.write(active_mask);
@@ -265,6 +269,104 @@ private:
             std::cout << ">>> TC 2 FAILED!" << std::endl;
         }
 
+        // ----------------------------------------------------
+        // TESTCASE 3: Runtime OUT_BASE_ADDR + CXSTEP + ROWS_ACTIVE
+        // ----------------------------------------------------
+        std::cout << "\n>>> Starting TC 3: Runtime OUT_BASE_ADDR + CXSTEP + ROWS_ACTIVE..." << std::endl;
+
+        // Clear memory
+        for (int addr = 0; addr < 128; addr++) {
+            mock_mem->mem[addr] = psum_vector_t<4, float>();
+        }
+
+        // Runtime config
+        o_out_base_addr.write(8);
+        o_cxlim.write(4);
+        o_cxstep.write(2);
+        o_cklim.write(4);
+        o_ckstep.write(1);
+        o_preload_en.write(false);
+
+        sramc_mask_t<4> partial_mask;
+        partial_mask[0] = true;
+        partial_mask[1] = false;
+        partial_mask[2] = true;
+        partial_mask[3] = false;
+        o_rows_active.write(partial_mask);
+
+        wait();
+
+        float expected_data_tc3[4][4] = {
+            {10.0f, 11.0f, 12.0f, 13.0f},
+            {20.0f, 21.0f, 22.0f, 23.0f},
+            {30.0f, 31.0f, 32.0f, 33.0f},
+            {40.0f, 41.0f, 42.0f, 43.0f}
+        };
+
+        // Start PSM
+        o_fsm_start.write(true);
+        wait();
+        o_fsm_start.write(false);
+
+        // Feed 4 vectors
+        for (int step = 0; step < 4; step++) {
+            while (!i_cscan_en.read()) {
+                wait();
+        }
+
+        psum_vector_t<4, float> test_vec;
+            for (int y = 0; y < 4; y++) {
+                test_vec[y] = expected_data_tc3[step][y];
+            }
+
+            o_c_arr.write(test_vec);
+            wait();
+        }
+
+        while (!i_done.read()) {
+            wait();
+        }
+        std::cout << "[TB] TC3 finished." << std::endl;
+
+        bool tc3_passed = true;
+
+        std::cout << "\n--- TC 3 SRAM C RUNTIME WRITE CHECKS ---" << std::endl;
+
+        for (int i = 0; i < 4; i++) {
+            uint32_t addr = 8 + i * 2;
+            psum_vector_t<4, float> val = mock_mem->mem[addr];
+
+            bool pass = true;
+
+            // mask = 1010, tức row 0 và row 2 được ghi
+            if (std::abs(val[0] - expected_data_tc3[i][0]) > 1e-3) pass = false;
+            if (std::abs(val[2] - expected_data_tc3[i][2]) > 1e-3) pass = false;
+
+            // row 1 và row 3 không được ghi, kỳ vọng vẫn 0
+            if (std::abs(val[1] - 0.0f) > 1e-3) pass = false;
+            if (std::abs(val[3] - 0.0f) > 1e-3) pass = false;
+
+            if (!pass) tc3_passed = false;
+
+            std::cout << "addr " << addr
+                                      << " -> [" << val[0] << ", " << val[1]
+                                      << ", " << val[2] << ", " << val[3] << "] "
+                                      << (pass ? "PASS" : "*FAIL*")
+                                      << std::endl;
+            }
+
+        // Kiểm tra các địa chỉ không nên bị ghi
+        for (int addr : {0, 1, 2, 3, 8 + 1, 8 + 3}) {
+            psum_vector_t<4, float> val = mock_mem->mem[addr];
+            for (int y = 0; y < 4; y++) {
+                if (std::abs(val[y]) > 1e-3) {
+                    tc3_passed = false;
+                }
+            }
+        }
+
+        std::cout << (tc3_passed ? ">>> TC 3 PASSED SUCCESSFULLY!" : ">>> TC 3 FAILED!") << std::endl;
+
         std::cout << "\n=============================================================" << std::endl;
         std::cout << "           SAURIA Standalone PSM Simulation Ended            " << std::endl;
         std::cout << "=============================================================\n" << std::endl;
@@ -297,7 +399,9 @@ int sc_main(int argc, char* argv[]) {
     sc_signal<bool> preload_en{"preload_en"};
     sc_signal<sramc_mask_t<4>> rows_active{"rows_active"};
 
-    sc_signal<bool> fsm_start{"fsm_start"};
+    sc_signal<uint32_t> out_base_addr{"out_base_addr"};
+
+    sc_signal<bool> fsm_start{"fsm_start"}; 
     sc_signal<bool> fsm_reset{"fsm_reset"};
     sc_signal<bool> pipeline_en{"pipeline_en"};
 
@@ -347,6 +451,8 @@ int sc_main(int argc, char* argv[]) {
     dut.i_fsm_reset(fsm_reset);
     dut.i_pipeline_en(pipeline_en);
 
+    dut.i_out_base_addr(out_base_addr);
+    
     dut.o_done(done);
     dut.o_finalwrite(finalwrite);
     dut.o_shift_done(shift_done);
@@ -370,6 +476,7 @@ int sc_main(int argc, char* argv[]) {
     tb.o_fsm_start(fsm_start);
     tb.o_fsm_reset(fsm_reset);
     tb.o_pipeline_en(pipeline_en);
+    tb.o_out_base_addr(out_base_addr);
 
     tb.i_done(done);
     tb.i_finalwrite(finalwrite);

@@ -55,7 +55,37 @@ namespace sauria {
     const uint32_t CFG_ACT_OFFSET       = 0x00000400;
     const uint32_t CFG_WEI_OFFSET       = 0x00000600;
     const uint32_t CFG_OUT_OFFSET       = 0x00000800;
+    const uint32_t CFG_LAYER_OFFSET     = 0x00000A00;
 
+    // Runtime base address
+    const uint32_t CFG_ACT_BASE_ADDR   = CFG_ACT_OFFSET + 0x20;
+    const uint32_t CFG_WEI_BASE_ADDR   = CFG_WEI_OFFSET + 0x20;
+    const uint32_t CFG_OUT_BASE_ADDR   = CFG_OUT_OFFSET + 0x20;
+
+    // Runtime layer address
+    const uint32_t IN_H = CFG_LAYER_OFFSET + 0x00;
+    const uint32_t IN_W = CFG_LAYER_OFFSET + 0x04;
+    const uint32_t IN_C = CFG_LAYER_OFFSET + 0x08;
+
+    const uint32_t OUT_H = CFG_LAYER_OFFSET + 0x0C;
+    const uint32_t OUT_W = CFG_LAYER_OFFSET + 0x10;
+    const uint32_t OUT_C = CFG_LAYER_OFFSET + 0x14;
+
+    const uint32_t KERNEL_H = CFG_LAYER_OFFSET + 0x18;
+    const uint32_t KERNEL_W = CFG_LAYER_OFFSET + 0x1C;
+
+    const uint32_t STRIDE = CFG_LAYER_OFFSET + 0x20;
+    const uint32_t PADDING = CFG_LAYER_OFFSET + 0x24;
+    const uint32_t DILATION = CFG_LAYER_OFFSET + 0x28;
+    const uint32_t DIL_PAT = CFG_LAYER_OFFSET + 0x2C;
+    
+    const uint32_t TILE_X = CFG_LAYER_OFFSET + 0x30;
+    const uint32_t TILE_Y = CFG_LAYER_OFFSET + 0x34;
+    const uint32_t TILE_K = CFG_LAYER_OFFSET + 0x38;
+    const uint32_t TILE_C = CFG_LAYER_OFFSET + 0x3C;
+
+    const uint32_t X_USED = CFG_LAYER_OFFSET + 0x40;
+    const uint32_t Y_USED = CFG_LAYER_OFFSET + 0x44;
     // ----------------------------------------------------
     // Templated Containers for SystemC Signal Integrity
     // ----------------------------------------------------

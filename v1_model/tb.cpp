@@ -1,6 +1,3 @@
-// Copyright 2026 Barcelona Supercomputing Center (BSC)
-// SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
-//
 // SystemC Model for SAURIA NPU Core
 // Basic Testbench (tb.cpp)
 
@@ -61,6 +58,20 @@ private:
         return i_host_rdata.read();
     }
 
+    // Helper write to 1 register
+    void write_reg32(uint32_t addr, uint32_t value){
+        host_data_t data;
+        host_mask_t mask;
+
+        data.data.fill(0.0f);
+        mask.data.fill(false);
+
+        data[0] = static_cast<float>(value);
+        mask[0] = true;
+
+        write_host_mem(addr, data, mask);
+    }
+
     void test_process() {
         std::cout << "\n=============================================" << std::endl;
         std::cout << "       SAURIA SystemC NPU Core Testbench     " << std::endl;
@@ -103,8 +114,10 @@ private:
         act_val2[0] = -0.5f; act_val2[1] = 0.005f; act_val2[2] = 10.0f; act_val2[3] = 0.1f; // element 1 is under threshold!
 
         // SRAM A Address = SRAMA_OFFSET | (phys_addr << 1) | sub_word
-        uint32_t srama_addr0_lower = SRAMA_OFFSET | (0 << 1) | 0;
-        uint32_t srama_addr0_upper = SRAMA_OFFSET | (0 << 1) | 1;
+        uint32_t act_base = 4;
+        uint32_t act_step = 2;
+        uint32_t srama_addr0_lower = SRAMA_OFFSET | ((act_step * 0 + act_base) << 1) | 0;
+        uint32_t srama_addr0_upper = SRAMA_OFFSET | ((act_step * 0 + act_base) << 1) | 1;
 
         write_host_mem(srama_addr0_lower, act_val1, full_mask);
         write_host_mem(srama_addr0_upper, act_val2, full_mask);
@@ -116,8 +129,12 @@ private:
         host_data_t wei_val1;
         wei_val1[0] = 0.5f; wei_val1[1] = -1.0f; wei_val1[2] = 2.0f; wei_val1[3] = 0.0f;
 
-        uint32_t sramb_addr0 = SRAMB_OFFSET | 0;
+        uint32_t wei_base = 2;
+        uint32_t wei_step = 2;
+        uint32_t sramb_addr0 = SRAMB_OFFSET | (wei_step * 0 + wei_base);
         write_host_mem(sramb_addr0, wei_val1, full_mask);
+
+        uint32_t out_base = 8;
 
         // ----------------------------------------------------
         // Step 3: Verification Read-Back via Host Interface
@@ -154,6 +171,79 @@ private:
         wait();
         o_select.write(sc_bv<3>("111")); // Swap buffers: Host maps to 1, NPU maps to 0
         wait();
+
+        // ######################################################
+        // TESTBENCH: Write to register configure before START
+        //  RUN - Time parameter config
+        // A - DEFAULT
+        // #####################################################
+        std::cout << "[TB] @ " << sc_time_stamp() << " Programming runtime configuration..." << std::endl;
+
+        // Activation feeder
+        write_reg32(CFG_ACT_OFFSET + 0x04, 96); // ACT_INCNTLIM
+        write_reg32(CFG_ACT_OFFSET + 0x08, act_step); // ACT_INCNTSTEP
+        write_reg32(CFG_ACT_OFFSET + 0x0C, 96); // ACT_OUTCNTLIM
+        write_reg32(CFG_ACT_OFFSET + 0x10, act_step); // ACT_OUTCNTSTEP
+
+        // Weight feeder
+        write_reg32(CFG_WEI_OFFSET + 0x04, 96); // WEI_INCNTLIM
+        write_reg32(CFG_WEI_OFFSET + 0x08, wei_step); // WEI_INCNTSTEP
+
+        // PSM
+        write_reg32(CFG_OUT_OFFSET + 0x04, 96); //CXLIM
+        write_reg32(CFG_OUT_OFFSET + 0x08, 1); //CXSTEP
+        write_reg32(CFG_OUT_OFFSET + 0x0C, 96); // CKLIM
+        write_reg32(CFG_OUT_OFFSET + 0x10, 1);// CKSTEP
+
+        // ACT_REPS & WEI_REPS
+        uint32_t act_reps = 1;
+        uint32_t wei_reps = 2;
+
+        write_reg32(CFG_CON_OFFSET + 0x04, act_reps);
+        write_reg32(CFG_CON_OFFSET + 0x08, wei_reps);
+
+        //MEMORY
+        // write_reg32(CFG_ACT_BASE_ADDR, 0); // ACT_BASE_ADDR
+        // write_reg32(CFG_WEI_BASE_ADDR, 0); // WEI_BASE_ADDR
+        // write_reg32(CFG_OUT_BASE_ADDR, 0); // OUT_BASE_ADDR
+
+        // ######################################################
+        // TESTBENCH: Write to register configure before START
+        //  RUN - Time parameter config
+        // B - BASE ADDRESS
+        // #####################################################
+
+        write_reg32(CFG_ACT_BASE_ADDR, act_base);
+        write_reg32(CFG_WEI_BASE_ADDR, wei_base);
+        write_reg32(CFG_OUT_BASE_ADDR, out_base);
+
+        // ######################################################
+        // TESTBENCH: Write to register configure before START
+        //  RUN - Time parameter config
+        // C - Layer
+        // #####################################################
+        write_reg32(CFG_LAYER_OFFSET + 0x00, 6);   // IN_H
+        write_reg32(CFG_LAYER_OFFSET + 0x04, 10);  // IN_W
+        write_reg32(CFG_LAYER_OFFSET + 0x08, 64);  // IN_C
+
+        write_reg32(CFG_LAYER_OFFSET + 0x0C, 4);   // OUT_H
+        write_reg32(CFG_LAYER_OFFSET + 0x10, 8);   // OUT_W
+        write_reg32(CFG_LAYER_OFFSET + 0x14, 16);  // OUT_C
+
+        write_reg32(CFG_LAYER_OFFSET + 0x18, 3);   // KERNEL_H
+        write_reg32(CFG_LAYER_OFFSET + 0x1C, 3);   // KERNEL_W
+
+        write_reg32(CFG_LAYER_OFFSET + 0x20, 1);   // STRIDE
+        write_reg32(CFG_LAYER_OFFSET + 0x24, 0);   // PADDING
+        write_reg32(CFG_LAYER_OFFSET + 0x28, 1);   // DILATION
+
+        write_reg32(CFG_LAYER_OFFSET + 0x30, 16);  // TILE_X
+        write_reg32(CFG_LAYER_OFFSET + 0x34, 4);   // TILE_Y
+        write_reg32(CFG_LAYER_OFFSET + 0x38, 16);  // TILE_K
+        write_reg32(CFG_LAYER_OFFSET + 0x3C, 64);  // TILE_C
+
+        write_reg32(CFG_LAYER_OFFSET + 0x40, 16);  // X_USED
+        write_reg32(CFG_LAYER_OFFSET + 0x44, 8);   // Y_USED
 
         // ----------------------------------------------------
         // Step 5: Start NPU Execution and Monitor Done
