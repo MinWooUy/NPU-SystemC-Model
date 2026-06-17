@@ -41,6 +41,17 @@ namespace sauria
         sc_in<uint32_t> i_act_outcntlim{"i_act_outcntlim"};
         sc_in<uint32_t> i_act_outcntstep{"i_act_outcntstep"};
         sc_in<sc_bv<DILP_W>> i_act_dil_pat{"i_act_dil_pat"};
+        // Full SAURIA IFMAP address-generator runtime config
+        sc_in<uint32_t> i_act_xlim{"i_act_xlim"};
+        sc_in<uint32_t> i_act_xstep{"i_act_xstep"};
+        sc_in<uint32_t> i_act_ylim{"i_act_ylim"};
+        sc_in<uint32_t> i_act_ystep{"i_act_ystep"};
+        sc_in<uint32_t> i_act_chlim{"i_act_chlim"};
+        sc_in<uint32_t> i_act_chstep{"i_act_chstep"};
+        sc_in<uint32_t> i_act_til_xlim{"i_act_til_xlim"};
+        sc_in<uint32_t> i_act_til_xstep{"i_act_til_xstep"};
+        sc_in<uint32_t> i_act_til_ylim{"i_act_til_ylim"};
+        sc_in<uint32_t> i_act_til_ystep{"i_act_til_ystep"};
 
         // Memory Interface to SRAM A
         sc_out<uint32_t> o_srama_addr{"o_srama_addr"};
@@ -78,9 +89,59 @@ namespace sauria
         uint32_t incnt{0};
         uint32_t dil_idx{0};
 
+        // SAURIA-style IFMAP address generator counters
+        uint32_t act_x_cnt{0};
+        uint32_t act_y_cnt{0};
+        uint32_t act_ch_cnt{0};
+
         // SRAM read latency matching registers
         bool rden_q{false};
         bool cnt_clear_q{false};
+
+        bool use_sauria_ifmap_addr_gen()
+        {
+            return (
+                i_act_xlim.read() != 0 &&
+                i_act_xstep.read() != 0 &&
+                i_act_ylim.read() != 0 &&
+                i_act_ystep.read() != 0 &&
+                i_act_chlim.read() != 0 &&
+                i_act_chstep.read() != 0);
+        }
+
+        void advance_sauria_ifmap_addr_gen()
+        {
+            uint32_t next_x = act_x_cnt + i_act_xstep.read();
+
+            if (next_x < i_act_xlim.read())
+            {
+                act_x_cnt = next_x;
+                return;
+            }
+
+            act_x_cnt = 0;
+
+            uint32_t next_y = act_y_cnt + i_act_ystep.read();
+
+            if (next_y < i_act_ylim.read())
+            {
+                act_y_cnt = next_y;
+                return;
+            }
+
+            act_y_cnt = 0;
+
+            uint32_t next_ch = act_ch_cnt + i_act_chstep.read();
+
+            if (next_ch < i_act_chlim.read())
+            {
+                act_ch_cnt = next_ch;
+            }
+            else
+            {
+                act_ch_cnt = 0;
+            }
+        }
 
         void feeder_process()
         {
@@ -97,6 +158,12 @@ namespace sauria
                 addr_reg = 0;
                 incnt = 0;
                 dil_idx = 0;
+
+                act_x_cnt = 0;
+                act_y_cnt = 0;
+                act_ch_cnt = 0;
+
+                cnt_clear_q = false;
                 rden_q = false;
                 for (int i = 0; i < Y_DIM; i++)
                 {
@@ -125,6 +192,11 @@ namespace sauria
                 addr_reg = 0;
                 incnt = 0;
                 dil_idx = 0;
+
+                act_x_cnt = 0;
+                act_y_cnt = 0;
+                act_ch_cnt = 0;
+
                 rden_q = false;
                 o_srama_rden.write(false);
 
@@ -178,7 +250,19 @@ namespace sauria
 
                 if (within_limit && dil_allow)
                 {
-                    uint32_t final_addr = i_act_base_addr.read() + addr_reg;
+                    bool sauria_addr_mode = use_sauria_ifmap_addr_gen();
+
+                    uint32_t final_addr = 0;
+
+                    if (sauria_addr_mode)
+                    {
+                        final_addr = i_act_base_addr.read() + act_ch_cnt + act_y_cnt + act_x_cnt;
+                    }
+                    else
+                    {
+                        final_addr = i_act_base_addr.read() + addr_reg;
+                    }
+
                     o_srama_rden.write(true);
                     o_srama_addr.write(final_addr);
 
@@ -187,22 +271,38 @@ namespace sauria
                     if (dbg_ifmap_read_count < 64)
                     {
                         std::cout << "[DEBUG IFMAP] read_count=" << dbg_ifmap_read_count
+                                  << " mode=" << (sauria_addr_mode ? "SAURIA" : "LINEAR")
                                   << " feeder_en=" << i_feeder_en.read()
                                   << " cnt_en=" << i_cnt_en.read()
                                   << " cnt_clear=" << i_cnt_clear.read()
                                   << " base=" << i_act_base_addr.read()
                                   << " addr_reg=" << addr_reg
+                                  << " x_cnt=" << act_x_cnt
+                                  << " y_cnt=" << act_y_cnt
+                                  << " ch_cnt=" << act_ch_cnt
                                   << " final_addr=" << final_addr
                                   << " incnt=" << incnt
                                   << " limit=" << i_act_incntlim.read()
-                                  << " step=" << i_act_incntstep.read()
-                                  << " dil_idx=" << dil_idx
+                                  << " xlim=" << i_act_xlim.read()
+                                  << " xstep=" << i_act_xstep.read()
+                                  << " ylim=" << i_act_ylim.read()
+                                  << " ystep=" << i_act_ystep.read()
+                                  << " chlim=" << i_act_chlim.read()
+                                  << " chstep=" << i_act_chstep.read()
                                   << std::endl;
                     }
 
                     dbg_ifmap_read_count++;
 
-                    addr_reg += i_act_incntstep.read();
+                    if (sauria_addr_mode)
+                    {
+                        advance_sauria_ifmap_addr_gen();
+                    }
+                    else
+                    {
+                        addr_reg += i_act_incntstep.read();
+                    }
+
                     incnt++;
                     rden_q = true;
                 }

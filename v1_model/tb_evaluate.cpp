@@ -562,6 +562,18 @@ private:
                         static_cast<uint32_t>(cfg.dil_pat & 0xFFFFFFFFULL),
                         "ACT.DIL_PAT_LOW32");
 
+        // Full SAURIA activation address generator parameters
+        write_reg32_all(CFG_ACT_OFFSET + 0x14, cfg.xlim, "ACT.XLIM");
+        write_reg32_all(CFG_ACT_OFFSET + 0x18, cfg.xstep, "ACT.XSTEP");
+        write_reg32_all(CFG_ACT_OFFSET + 0x1C, cfg.ylim, "ACT.YLIM");
+        write_reg32_all(CFG_ACT_OFFSET + 0x20, cfg.ystep, "ACT.YSTEP");
+        write_reg32_all(CFG_ACT_OFFSET + 0x24, cfg.chlim, "ACT.CHLIM");
+        write_reg32_all(CFG_ACT_OFFSET + 0x2C, cfg.chstep, "ACT.CHSTEP");
+
+        write_reg32_all(CFG_ACT_OFFSET + 0x30, cfg.til_xlim, "ACT.TIL_XLIM");
+        write_reg32_all(CFG_ACT_OFFSET + 0x34, cfg.til_xstep, "ACT.TIL_XSTEP");
+        write_reg32_all(CFG_ACT_OFFSET + 0x38, cfg.til_ylim, "ACT.TIL_YLIM");
+        write_reg32_all(CFG_ACT_OFFSET + 0x3C, cfg.til_ystep, "ACT.TIL_YSTEP");
         // ---------------------------------------------------------
         // WEIGHT FEEDER
         // ---------------------------------------------------------
@@ -572,7 +584,17 @@ private:
         write_reg32_all(CFG_WEI_OFFSET + 0x08,
                         cfg.wstep,
                         "WEI.INCNTSTEP");
+        // Full SAURIA weight address-generator parameters
+        write_reg32_all(CFG_WEI_OFFSET + 0x10, cfg.wlim, "WEI.WLIM");
+        write_reg32_all(CFG_WEI_OFFSET + 0x14, cfg.wstep, "WEI.WSTEP");
+        write_reg32_all(CFG_WEI_OFFSET + 0x18, cfg.klim, "WEI.KLIM");
+        write_reg32_all(CFG_WEI_OFFSET + 0x1C, cfg.kstep, "WEI.KSTEP");
 
+        write_reg32_all(CFG_WEI_OFFSET + 0x20, cfg.til_klim, "WEI.TIL_KLIM");
+        write_reg32_all(CFG_WEI_OFFSET + 0x24, cfg.til_kstep, "WEI.TIL_KSTEP");
+
+        write_reg32_all(CFG_WEI_OFFSET + 0x28, cfg.cols_active, "WEI.COLS_ACTIVE");
+        write_reg32_all(CFG_WEI_OFFSET + 0x2C, cfg.waligned, "WEI.WALIGNED");
         // ---------------------------------------------------------
         // PSM / OUTPUT
         // ---------------------------------------------------------
@@ -592,6 +614,16 @@ private:
                         cfg.ckstep,
                         "OUT.CKSTEP");
 
+        // Full SAURIA output / PSM schedule parameters
+        write_reg32_all(CFG_OUT_OFFSET + 0x00, cfg.ncontexts, "OUT.NCONTEXTS");
+
+        write_reg32_all(CFG_OUT_OFFSET + 0x14, cfg.til_cylim, "OUT.TIL_CYLIM");
+        write_reg32_all(CFG_OUT_OFFSET + 0x18, cfg.til_cystep, "OUT.TIL_CYSTEP");
+        write_reg32_all(CFG_OUT_OFFSET + 0x1C, cfg.til_cklim, "OUT.TIL_CKLIM");
+        write_reg32_all(CFG_OUT_OFFSET + 0x20, cfg.til_ckstep, "OUT.TIL_CKSTEP");
+
+        write_reg32_all(CFG_OUT_OFFSET + 0x24, cfg.inactive_cols, "OUT.INACTIVE_COLS");
+        write_reg32_all(CFG_OUT_OFFSET + 0x28, cfg.preload_en, "OUT.PRELOAD_EN");
         // ---------------------------------------------------------
         // BASE ADDRESS
         // Quan trọng: args[18..20] là DRAM base của Sauria controller.

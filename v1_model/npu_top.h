@@ -118,12 +118,37 @@ namespace sauria
             config_regs_inst->o_act_incntstep(s_act_incntstep);
             config_regs_inst->o_act_outcntlim(s_act_outcntlim);
             config_regs_inst->o_act_outcntstep(s_act_outcntstep);
+            config_regs_inst->o_act_xlim(s_act_xlim);
+            config_regs_inst->o_act_xstep(s_act_xstep);
+            config_regs_inst->o_act_ylim(s_act_ylim);
+            config_regs_inst->o_act_ystep(s_act_ystep);
+            config_regs_inst->o_act_chlim(s_act_chlim);
+            config_regs_inst->o_act_chstep(s_act_chstep);
+            config_regs_inst->o_act_til_xlim(s_act_til_xlim);
+            config_regs_inst->o_act_til_xstep(s_act_til_xstep);
+            config_regs_inst->o_act_til_ylim(s_act_til_ylim);
+            config_regs_inst->o_act_til_ystep(s_act_til_ystep);
             config_regs_inst->o_wei_incntlim(s_wei_incntlim);
             config_regs_inst->o_wei_incntstep(s_wei_incntstep);
+            config_regs_inst->o_wei_wlim(s_wei_wlim);
+            config_regs_inst->o_wei_wstep(s_wei_wstep);
+            config_regs_inst->o_wei_klim(s_wei_klim);
+            config_regs_inst->o_wei_kstep(s_wei_kstep);
+            config_regs_inst->o_wei_til_klim(s_wei_til_klim);
+            config_regs_inst->o_wei_til_kstep(s_wei_til_kstep);
+            config_regs_inst->o_wei_cols_active(s_wei_cols_active);
+            config_regs_inst->o_wei_waligned(s_wei_waligned);
             config_regs_inst->o_cxlim(s_cxlim);
             config_regs_inst->o_cxstep(s_cxstep);
             config_regs_inst->o_cklim(s_cklim);
             config_regs_inst->o_ckstep(s_ckstep);
+            config_regs_inst->o_out_ncontexts(s_out_ncontexts);
+            config_regs_inst->o_out_til_cylim(s_out_til_cylim);
+            config_regs_inst->o_out_til_cystep(s_out_til_cystep);
+            config_regs_inst->o_out_til_cklim(s_out_til_cklim);
+            config_regs_inst->o_out_til_ckstep(s_out_til_ckstep);
+            config_regs_inst->o_out_inactive_cols(s_out_inactive_cols);
+            config_regs_inst->o_out_preload_en(s_out_preload_en);
             config_regs_inst->o_act_base_addr(s_act_base_addr);
             config_regs_inst->o_wei_base_addr(s_wei_base_addr);
             config_regs_inst->o_out_base_addr(s_out_base_addr);
@@ -230,8 +255,35 @@ namespace sauria
 
             act_feeder->i_act_base_addr(s_act_base_addr);
 
+            act_feeder->i_act_incntlim(s_act_incntlim);
+            act_feeder->i_act_incntstep(s_act_incntstep);
+            act_feeder->i_act_outcntlim(s_act_outcntlim);
+            act_feeder->i_act_outcntstep(s_act_outcntstep);
+            act_feeder->i_act_dil_pat(s_dil_pat);
+            // Full SAURIA IFMAP runtime config
+            act_feeder->i_act_xlim(s_act_xlim);
+            act_feeder->i_act_xstep(s_act_xstep);
+            act_feeder->i_act_ylim(s_act_ylim);
+            act_feeder->i_act_ystep(s_act_ystep);
+            act_feeder->i_act_chlim(s_act_chlim);
+            act_feeder->i_act_chstep(s_act_chstep);
+
+            act_feeder->i_act_til_xlim(s_act_til_xlim);
+            act_feeder->i_act_til_xstep(s_act_til_xstep);
+            act_feeder->i_act_til_ylim(s_act_til_ylim);
+            act_feeder->i_act_til_ystep(s_act_til_ystep);
+
             wei_feeder->i_wei_incntlim(s_wei_incntlim);
             wei_feeder->i_wei_incntstep(s_wei_incntstep);
+            // Full SAURIA WEIGHT runtime config
+            wei_feeder->i_wei_wlim(s_wei_wlim);
+            wei_feeder->i_wei_wstep(s_wei_wstep);
+            wei_feeder->i_wei_klim(s_wei_klim);
+            wei_feeder->i_wei_kstep(s_wei_kstep);
+            wei_feeder->i_wei_til_klim(s_wei_til_klim);
+            wei_feeder->i_wei_til_kstep(s_wei_til_kstep);
+            wei_feeder->i_wei_cols_active(s_wei_cols_active);
+            wei_feeder->i_wei_waligned(s_wei_waligned);
             wei_feeder->i_feeder_en(s_wei_feeder_en);
             wei_feeder->i_feeder_clear(s_wei_feeder_clear);
             wei_feeder->i_start(s_wei_start);
@@ -310,23 +362,19 @@ namespace sauria
             ctrl_inst->i_act_reps(s_act_reps);
             ctrl_inst->i_wei_reps(s_wei_reps);
 
-            act_feeder->i_act_incntlim(s_act_incntlim);
-            act_feeder->i_act_incntstep(s_act_incntstep);
-            act_feeder->i_act_outcntlim(s_act_outcntlim);
-            act_feeder->i_act_outcntstep(s_act_outcntstep);
-            act_feeder->i_act_dil_pat(s_dil_pat);
-
             psm_inst->i_cxlim(s_cxlim);
             psm_inst->i_cxstep(s_cxstep);
             psm_inst->i_cklim(s_cklim);
             psm_inst->i_ckstep(s_ckstep);
-            psm_inst->i_til_cylim(s_incntlim);
-            psm_inst->i_til_cystep(s_one);
-            psm_inst->i_til_cklim(s_incntlim);
-            psm_inst->i_til_ckstep(s_one);
-            psm_inst->i_ncontexts(s_one);
-            psm_inst->i_preload_en(s_false);
+            // Full SAURIA OUTPUT / PSM runtime
+            psm_inst->i_til_cylim(s_out_til_cylim);
+            psm_inst->i_til_cystep(s_out_til_cystep);
+            psm_inst->i_til_cklim(s_out_til_cklim);
+            psm_inst->i_til_ckstep(s_out_til_ckstep);
+            psm_inst->i_ncontexts(s_out_ncontexts);
+            psm_inst->i_preload_en(s_out_preload_en);
             psm_inst->i_rows_active(s_rows_active);
+            psm_inst->i_inactive_cols(s_out_inactive_cols);
 
             // Config registers module bindings
             config_regs_inst->o_incntlim(s_incntlim);
@@ -451,16 +499,43 @@ namespace sauria
                           << std::hex << s_dil_pat.read().to_uint64()
                           << std::dec << "\n";
                 std::cout << "ROWS_ACTIVE    : " << s_rows_active.read() << "\n";
+                std::cout << "ACT_XLIM       : " << s_act_xlim.read() << "\n";
+                std::cout << "ACT_XSTEP      : " << s_act_xstep.read() << "\n";
+                std::cout << "ACT_YLIM       : " << s_act_ylim.read() << "\n";
+                std::cout << "ACT_YSTEP      : " << s_act_ystep.read() << "\n";
+                std::cout << "ACT_CHLIM      : " << s_act_chlim.read() << "\n";
+                std::cout << "ACT_CHSTEP     : " << s_act_chstep.read() << "\n";
+                std::cout << "ACT_TIL_XLIM   : " << s_act_til_xlim.read() << "\n";
+                std::cout << "ACT_TIL_XSTEP  : " << s_act_til_xstep.read() << "\n";
+                std::cout << "ACT_TIL_YLIM   : " << s_act_til_ylim.read() << "\n";
+                std::cout << "ACT_TIL_YSTEP  : " << s_act_til_ystep.read() << "\n";
 
                 std::cout << "\nWEIGHT\n";
                 std::cout << "WEI_INCNTLIM   : " << s_wei_incntlim.read() << "\n";
                 std::cout << "WEI_INCNTSTEP  : " << s_wei_incntstep.read() << "\n";
+                std::cout << "WEI_WLIM        : " << s_wei_wlim.read() << "\n";
+                std::cout << "WEI_WSTEP       : " << s_wei_wstep.read() << "\n";
+                std::cout << "WEI_KLIM        : " << s_wei_klim.read() << "\n";
+                std::cout << "WEI_KSTEP       : " << s_wei_kstep.read() << "\n";
+                std::cout << "WEI_TIL_KLIM    : " << s_wei_til_klim.read() << "\n";
+                std::cout << "WEI_TIL_KSTEP   : " << s_wei_til_kstep.read() << "\n";
+                std::cout << "WEI_COLS_ACTIVE : 0x"
+                          << std::hex << s_wei_cols_active.read()
+                          << std::dec << "\n";
+                std::cout << "WEI_WALIGNED    : " << s_wei_waligned.read() << "\n";
 
                 std::cout << "\nPSUM\n";
                 std::cout << "CXLIM          : " << s_cxlim.read() << "\n";
                 std::cout << "CXSTEP         : " << s_cxstep.read() << "\n";
                 std::cout << "CKLIM          : " << s_cklim.read() << "\n";
                 std::cout << "CKSTEP         : " << s_ckstep.read() << "\n";
+                std::cout << "NCONTEXTS      : " << s_out_ncontexts.read() << "\n";
+                std::cout << "TIL_CYLIM      : " << s_out_til_cylim.read() << "\n";
+                std::cout << "TIL_CYSTEP     : " << s_out_til_cystep.read() << "\n";
+                std::cout << "TIL_CKLIM      : " << s_out_til_cklim.read() << "\n";
+                std::cout << "TIL_CKSTEP     : " << s_out_til_ckstep.read() << "\n";
+                std::cout << "INACTIVE_COLS  : " << s_out_inactive_cols.read() << "\n";
+                std::cout << "PRELOAD_EN     : " << s_out_preload_en.read() << "\n";
 
                 std::cout << "\nMEMORY MAP\n";
                 std::cout << "ACT_BASE_ADDR  : " << s_act_base_addr.read() << "\n";
@@ -574,6 +649,17 @@ namespace sauria
         sc_signal<bool> s_act_clearfifo{"s_act_clearfifo"};
         sc_signal<bool> s_act_pop_en{"s_act_pop_en"};
         sc_signal<bool> s_act_finalctx{"s_act_finalctx"};
+        // Full SAURIA IFMAP runtime config
+        sc_signal<uint32_t> s_act_xlim{"s_act_xlim"};
+        sc_signal<uint32_t> s_act_xstep{"s_act_xstep"};
+        sc_signal<uint32_t> s_act_ylim{"s_act_ylim"};
+        sc_signal<uint32_t> s_act_ystep{"s_act_ystep"};
+        sc_signal<uint32_t> s_act_chlim{"s_act_chlim"};
+        sc_signal<uint32_t> s_act_chstep{"s_act_chstep"};
+        sc_signal<uint32_t> s_act_til_xlim{"s_act_til_xlim"};
+        sc_signal<uint32_t> s_act_til_xstep{"s_act_til_xstep"};
+        sc_signal<uint32_t> s_act_til_ylim{"s_act_til_ylim"};
+        sc_signal<uint32_t> s_act_til_ystep{"s_act_til_ystep"};
         sc_signal<uint32_t> s_act_incntlim{"s_act_incntlim"};
         sc_signal<uint32_t> s_act_incntstep{"s_act_incntstep"};
         sc_signal<uint32_t> s_act_outcntlim{"s_act_outcntlim"};
@@ -591,6 +677,15 @@ namespace sauria
         sc_signal<bool> s_wei_cswitch{"s_wei_cswitch"};
         sc_signal<uint32_t> s_wei_incntlim{"s_wei_incntlim"};
         sc_signal<uint32_t> s_wei_incntstep{"s_wei_incntstep"};
+        // Full SAURIA WEIGHT runtime config
+        sc_signal<uint32_t> s_wei_wlim{"s_wei_wlim"};
+        sc_signal<uint32_t> s_wei_wstep{"s_wei_wstep"};
+        sc_signal<uint32_t> s_wei_klim{"s_wei_klim"};
+        sc_signal<uint32_t> s_wei_kstep{"s_wei_kstep"};
+        sc_signal<uint32_t> s_wei_til_klim{"s_wei_til_klim"};
+        sc_signal<uint32_t> s_wei_til_kstep{"s_wei_til_kstep"};
+        sc_signal<uint32_t> s_wei_cols_active{"s_wei_cols_active"};
+        sc_signal<uint32_t> s_wei_waligned{"s_wei_waligned"};
 
         // Internal Signals: Controller <-> PSM
         sc_signal<bool> s_psm_start{"s_psm_start"};
@@ -624,6 +719,14 @@ namespace sauria
         sc_signal<uint32_t> s_cxstep{"s_cxstep"};
         sc_signal<uint32_t> s_cklim{"s_cklim"};
         sc_signal<uint32_t> s_ckstep{"s_ckstep"};
+        // Full SAURIA output/PSM runtime config
+        sc_signal<uint32_t> s_out_ncontexts{"s_out_ncontexts"};
+        sc_signal<uint32_t> s_out_til_cylim{"s_out_til_cylim"};
+        sc_signal<uint32_t> s_out_til_cystep{"s_out_til_cystep"};
+        sc_signal<uint32_t> s_out_til_cklim{"s_out_til_cklim"};
+        sc_signal<uint32_t> s_out_til_ckstep{"s_out_til_ckstep"};
+        sc_signal<uint32_t> s_out_inactive_cols{"s_out_inactive_cols"};
+        sc_signal<bool> s_out_preload_en{"s_out_preload_en"};
 
         // Internal Signals: Feeders <-> SRAM
         sc_signal<uint32_t> s_srama_addr{"s_srama_addr"};

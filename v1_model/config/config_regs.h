@@ -49,16 +49,44 @@ namespace sauria
         sc_out<uint32_t> o_act_incntstep{"o_act_incntstep"};
         sc_out<uint32_t> o_act_outcntlim{"o_act_outcntlim"};
         sc_out<uint32_t> o_act_outcntstep{"o_act_outcntstep"};
+        // Full SAURIA IFMAP runtime config
+        sc_out<uint32_t> o_act_xlim{"o_act_xlim"};
+        sc_out<uint32_t> o_act_xstep{"o_act_xstep"};
+        sc_out<uint32_t> o_act_ylim{"o_act_ylim"};
+        sc_out<uint32_t> o_act_ystep{"o_act_ystep"};
+        sc_out<uint32_t> o_act_chlim{"o_act_chlim"};
+        sc_out<uint32_t> o_act_chstep{"o_act_chstep"};
+        sc_out<uint32_t> o_act_til_xlim{"o_act_til_xlim"};
+        sc_out<uint32_t> o_act_til_xstep{"o_act_til_xstep"};
+        sc_out<uint32_t> o_act_til_ylim{"o_act_til_ylim"};
+        sc_out<uint32_t> o_act_til_ystep{"o_act_til_ystep"};
 
         // Output to weight feeders
         sc_out<uint32_t> o_wei_incntlim{"o_wei_incntlim"};
         sc_out<uint32_t> o_wei_incntstep{"o_wei_incntstep"};
+        // Full SAURIA WEIGHT runtime config
+        sc_out<uint32_t> o_wei_wlim{"o_wei_wlim"};
+        sc_out<uint32_t> o_wei_wstep{"o_wei_wstep"};
+        sc_out<uint32_t> o_wei_klim{"o_wei_klim"};
+        sc_out<uint32_t> o_wei_kstep{"o_wei_kstep"};
+        sc_out<uint32_t> o_wei_til_klim{"o_wei_til_klim"};
+        sc_out<uint32_t> o_wei_til_kstep{"o_wei_til_kstep"};
+        sc_out<uint32_t> o_wei_cols_active{"o_wei_cols_active"};
+        sc_out<uint32_t> o_wei_waligned{"o_wei_waligned"};
 
         // Output to PSM feeders
         sc_out<uint32_t> o_cxlim{"o_cxlim"};
         sc_out<uint32_t> o_cxstep{"o_cxstep"};
         sc_out<uint32_t> o_cklim{"o_cklim"};
         sc_out<uint32_t> o_ckstep{"o_ckstep"};
+        // Full SAURIA OUTPUT / PSM runtime config
+        sc_out<uint32_t> o_out_ncontexts{"o_out_ncontexts"};
+        sc_out<uint32_t> o_out_til_cylim{"o_out_til_cylim"};
+        sc_out<uint32_t> o_out_til_cystep{"o_out_til_cystep"};
+        sc_out<uint32_t> o_out_til_cklim{"o_out_til_cklim"};
+        sc_out<uint32_t> o_out_til_ckstep{"o_out_til_ckstep"};
+        sc_out<uint32_t> o_out_inactive_cols{"o_out_inactive_cols"};
+        sc_out<bool> o_out_preload_en{"o_out_preload_en"};
 
         // Ouput to Memory (sauria_type)
         sc_out<uint32_t> o_act_base_addr{"o_act_base_addr"};
@@ -114,22 +142,48 @@ namespace sauria
         uint32_t r_act_incntstep{1};
         uint32_t r_act_outcntlim{96};
         uint32_t r_act_outcntstep{1};
+        uint32_t r_act_xlim{0};
+        uint32_t r_act_xstep{1};
+        uint32_t r_act_ylim{0};
+        uint32_t r_act_ystep{1};
+        uint32_t r_act_chlim{0};
+        uint32_t r_act_chstep{1};
+
+        uint32_t r_act_til_xlim{0};
+        uint32_t r_act_til_xstep{1};
+        uint32_t r_act_til_ylim{0};
+        uint32_t r_act_til_ystep{1};
 
         // Additional registers for weight feeder configuration
         uint32_t r_wei_incntlim{96};
         uint32_t r_wei_incntstep{1};
+        uint32_t r_wei_wlim{0};
+        uint32_t r_wei_wstep{1};
+        uint32_t r_wei_klim{0};
+        uint32_t r_wei_kstep{1};
+        uint32_t r_wei_til_klim{0};
+        uint32_t r_wei_til_kstep{1};
+        uint32_t r_wei_cols_active{0};
+        uint32_t r_wei_waligned{0};
 
         // Additional registers for PSM configuration
         uint32_t r_cxlim{96};
         uint32_t r_cxstep{1};
         uint32_t r_cklim{96};
         uint32_t r_ckstep{1};
+        uint32_t r_out_ncontexts{1};
+        uint32_t r_out_til_cylim{0};
+        uint32_t r_out_til_cystep{0};
+        uint32_t r_out_til_ckstep{1};
+        uint32_t r_out_inactive_cols{0};
+        bool r_out_preload_en{false};
 
         // Additional registers for memory
         uint32_t r_act_base_addr{0};
         uint32_t r_wei_base_addr{0};
         uint32_t r_out_base_addr{0};
 
+        // Additional for layer
         uint32_t r_in_h{0};
         uint32_t r_in_w{0};
         uint32_t r_in_c{0};
@@ -305,6 +359,57 @@ namespace sauria
                         if (wmask[0])
                             r_dil_pat = (uint32_t)wdata[0];
                     }
+                    else if (local_addr == ACT_XLIM)
+                    {
+                        if (wmask[0])
+                            r_act_xlim = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == ACT_XSTEP)
+                    {
+                        if (wmask[0])
+                            r_act_xstep = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == ACT_YLIM)
+                    {
+                        if (wmask[0])
+                            r_act_ylim = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == ACT_YSTEP)
+                    {
+                        if (wmask[0])
+                            r_act_ystep = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == ACT_CHLIM)
+                    {
+                        if (wmask[0])
+                            r_act_chlim = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == ACT_CHSTEP)
+                    {
+                        if (wmask[0])
+                            r_act_chstep = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == ACT_TIL_XLIM)
+                    {
+                        if (wmask[0])
+                            r_act_til_xlim = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == ACT_TIL_XSTEP)
+                    {
+                        if (wmask[0])
+                            r_act_til_xstep = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == ACT_TIL_YLIM)
+                    {
+                        if (wmask[0])
+                            r_act_til_ylim = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == ACT_TIL_YSTEP)
+                    {
+                        if (wmask[0])
+                            r_act_til_ystep = (uint32_t)wdata[0];
+                    }
+
                     else if (local_addr == CFG_WEI_OFFSET + 0x04)
                     { // 0x04 is Reg 13 for wei feeder incnt lim
                         if (wmask[0])
@@ -315,6 +420,47 @@ namespace sauria
                         if (wmask[0])
                             r_wei_incntstep = (uint32_t)wdata[0];
                     }
+                    else if (local_addr == WEI_WLIM)
+                    {
+                        if (wmask[0])
+                            r_wei_wlim = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == WEI_WSTEP)
+                    {
+                        if (wmask[0])
+                            r_wei_wstep = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == WEI_KLIM)
+                    {
+                        if (wmask[0])
+                            r_wei_klim = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == WEI_KSTEP)
+                    {
+                        if (wmask[0])
+                            r_wei_kstep = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == WEI_TIL_XLIM)
+                    {
+                        if (wmask[0])
+                            r_wei_til_klim = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == WEI_TIL_XSTEP)
+                    {
+                        if (wmask[0])
+                            r_wei_til_kstep = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == WEI_COLS_ACTIVE)
+                    {
+                        if (wmask[0])
+                            r_wei_cols_active = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == WEI_WALIGNED)
+                    {
+                        if (wmask[0])
+                            r_wei_waligned = (uint32_t)wdata[0];
+                    }
+
                     else if (local_addr == CFG_OUT_OFFSET + 0x04)
                     { // 0x04 is Reg 15 for PSM cxlim
                         if (wmask[0])
@@ -334,6 +480,41 @@ namespace sauria
                     { // 0x10 is Reg 18 for PSM ckstep
                         if (wmask[0])
                             r_ckstep = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == NCONTEXTS)
+                    {
+                        if (wmask[0])
+                            r_out_ncontexts = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == TIL_CYLIM)
+                    {
+                        if (wmask[0])
+                            r_out_til_cylim = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == TIL_CYSTEP)
+                    {
+                        if (wmask[0])
+                            r_out_til_cystep = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == TIL_CKLIM)
+                    {
+                        if (wmask[0])
+                            r_out_til_cklim = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == TIL_CKSTEP)
+                    {
+                        if (wmask[0])
+                            r_out_til_ckstep = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == INACTIVE_COLS)
+                    {
+                        if (wmask[0])
+                            r_out_inactive_cols = (uint32_t)wdata[0];
+                    }
+                    else if (local_addr == PRELOAD_EN)
+                    {
+                        if (wmask[0])
+                            r_out_preload_en = ((uint32_t)wdata[0] != 0);
                     }
 
                     else if (local_addr == CFG_ACT_BASE_ADDR)
@@ -677,14 +858,41 @@ namespace sauria
             o_act_incntstep.write(r_act_incntstep);
             o_act_outcntlim.write(r_act_outcntlim);
             o_act_outcntstep.write(r_act_outcntstep);
+            o_act_xlim.write(r_act_xlim);
+            o_act_xstep.write(r_act_xstep);
+            o_act_ylim.write(r_act_ylim);
+            o_act_ystep.write(r_act_ystep);
+            o_act_chlim.write(r_act_chlim);
+            o_act_chstep.write(r_act_chstep);
+            o_act_til_xlim.write(r_act_til_xlim);
+            o_act_til_xstep.write(r_act_til_xstep);
+            o_act_til_ylim.write(r_act_til_ylim);
+            o_act_til_ystep.write(r_act_til_ystep);
 
             o_wei_incntlim.write(r_wei_incntlim);
             o_wei_incntstep.write(r_wei_incntstep);
+            o_wei_wlim.write(r_wei_wlim);
+            o_wei_wstep.write(r_wei_wstep);
+            o_wei_klim.write(r_wei_klim);
+            o_wei_kstep.write(r_wei_kstep);
+            o_wei_til_klim.write(r_wei_til_klim);
+            o_wei_til_kstep.write(r_wei_til_kstep);
+            o_wei_cols_active.write(r_wei_cols_active);
+            o_wei_waligned.write(r_wei_waligned);
 
             o_cxlim.write(r_cxlim);
             o_cxstep.write(r_cxstep);
             o_cklim.write(r_cklim);
             o_ckstep.write(r_ckstep);
+            o_out_ncontexts.write(r_out_ncontexts);
+
+            o_out_til_cylim.write(r_out_til_cylim);
+            o_out_til_cystep.write(r_out_til_cystep);
+            o_out_til_cklim.write(r_out_til_cklim);
+            o_out_til_ckstep.write(r_out_til_ckstep);
+
+            o_out_inactive_cols.write(r_out_inactive_cols);
+            o_out_preload_en.write(r_out_preload_en);
 
             o_act_base_addr.write(r_act_base_addr);
             o_wei_base_addr.write(r_wei_base_addr);
