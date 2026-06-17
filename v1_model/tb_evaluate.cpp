@@ -616,12 +616,10 @@ private:
 
         // Full SAURIA output / PSM schedule parameters
         write_reg32_all(CFG_OUT_OFFSET + 0x00, cfg.ncontexts, "OUT.NCONTEXTS");
-
         write_reg32_all(CFG_OUT_OFFSET + 0x14, cfg.til_cylim, "OUT.TIL_CYLIM");
         write_reg32_all(CFG_OUT_OFFSET + 0x18, cfg.til_cystep, "OUT.TIL_CYSTEP");
         write_reg32_all(CFG_OUT_OFFSET + 0x1C, cfg.til_cklim, "OUT.TIL_CKLIM");
         write_reg32_all(CFG_OUT_OFFSET + 0x20, cfg.til_ckstep, "OUT.TIL_CKSTEP");
-
         write_reg32_all(CFG_OUT_OFFSET + 0x24, cfg.inactive_cols, "OUT.INACTIVE_COLS");
         write_reg32_all(CFG_OUT_OFFSET + 0x28, cfg.preload_en, "OUT.PRELOAD_EN");
         // ---------------------------------------------------------
@@ -953,6 +951,93 @@ private:
                 }
             }
         }
+
+        return out;
+    }
+
+    std::vector<int32_t> dump_sramc_psm_layout_i32(
+        const DecodedSauriaConfig &cfg)
+    {
+        std::vector<int32_t> out;
+
+        uint32_t ncontexts = cfg.ncontexts;
+        if (ncontexts == 0)
+        {
+            ncontexts = 1;
+        }
+
+        uint32_t vectors_per_context = cfg.cxlim;
+        uint32_t vector_step = cfg.cxstep;
+        uint32_t context_addr_stride = cfg.cxlim * cfg.cxstep;
+
+        uint32_t expected_elems = cfg.til_cklim;
+        if (expected_elems == 0)
+        {
+            expected_elems = ncontexts * vectors_per_context * Y_DIM;
+        }
+
+        out.reserve(expected_elems);
+
+        std::cout << "\n=========================================\n";
+        std::cout << "DUMP SRAMC USING PSM LAYOUT\n";
+        std::cout << "=========================================\n";
+        std::cout << "ncontexts          : " << ncontexts << "\n";
+        std::cout << "vectors/context    : " << vectors_per_context << "\n";
+        std::cout << "vector_step        : " << vector_step << "\n";
+        std::cout << "context_addr_stride: " << context_addr_stride << "\n";
+        std::cout << "expected_elems     : " << expected_elems << "\n";
+
+        for (uint32_t ctx = 0; ctx < ncontexts; ctx++)
+        {
+            uint32_t ctx_base = ctx * context_addr_stride;
+
+            std::cout << "\n[PSM LAYOUT DUMP] context=" << ctx
+                      << " ctx_base=" << ctx_base << "\n";
+
+            for (uint32_t v = 0; v < vectors_per_context; v++)
+            {
+                uint32_t phys_addr = ctx_base + v * vector_step;
+
+                if (ctx < 4 && v < 4)
+                {
+                    std::cout << "  vector=" << v
+                              << " phys_addr=" << phys_addr
+                              << " data=[";
+                }
+
+                for (int sw = 0; sw < subwords_c; sw++)
+                {
+                    uint32_t host_addr = get_sramc_addr(phys_addr, sw);
+                    host_data_t data = read_mem(0, host_addr);
+
+                    for (int lane = 0; lane < 4; lane++)
+                    {
+                        if (out.size() < expected_elems)
+                        {
+                            int32_t val = static_cast<int32_t>(data[lane]);
+                            out.push_back(val);
+
+                            if (ctx < 4 && v < 4)
+                            {
+                                std::cout << val;
+                                if (!(sw == subwords_c - 1 && lane == 3))
+                                {
+                                    std::cout << ", ";
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (ctx < 4 && v < 4)
+                {
+                    std::cout << "]\n";
+                }
+            }
+        }
+
+        std::cout << "Dumped elements     : " << out.size() << "\n";
+        std::cout << "=========================================\n\n";
 
         return out;
     }
@@ -1614,7 +1699,7 @@ private:
                 wait(2);
 
                 sramc_before_run = snapshot_sramc_words(
-                    64,
+                    256,
                     "BEFORE NPU RUN - HOST READ BUFFER 0");
 
                 // ---------------------------------------------------------
@@ -1760,7 +1845,7 @@ private:
         // ---------------------------------------------------------
         o_select.write(sc_bv<3>("000"));
         wait(2);
-        std::vector<host_data_t> sramc_after_run = snapshot_sramc_words(64, "AFTER NPU RUN");
+        std::vector<host_data_t> sramc_after_run = snapshot_sramc_words(256, "AFTER NPU RUN");
         compare_sramc_snapshots(sramc_before_run, sramc_after_run);
 
         std::string gold_dram_path = "stimuli/gold_dram.txt";
@@ -1776,7 +1861,7 @@ private:
             uint32_t n_output_elems = decoded_cfg_runtime.til_cklim;
 
             std::vector<uint8_t> gold_dram = load_initial_dram_file(gold_dram_path);
-            std::vector<int32_t> sramc_out = dump_sramc_linear_i32(n_output_elems);
+            std::vector<int32_t> sramc_out = dump_sramc_psm_layout_i32(decoded_cfg_runtime);
             std::vector<int32_t> gold_out = load_gold_output_i32(gold_dram, out_dram_base_runtime, n_output_elems);
 
             compare_sramc_with_gold(sramc_out, gold_out);
