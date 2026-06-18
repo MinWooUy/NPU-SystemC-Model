@@ -66,10 +66,8 @@ namespace sauria
     // Runtime weightfeeder
     const uint32_t WEI_WLIM = CFG_WEI_OFFSET + 0x10;
     const uint32_t WEI_WSTEP = CFG_WEI_OFFSET + 0x14;
-
     const uint32_t WEI_KLIM = CFG_WEI_OFFSET + 0x18;
     const uint32_t WEI_KSTEP = CFG_WEI_OFFSET + 0x1C;
-
     const uint32_t WEI_TIL_XLIM = CFG_WEI_OFFSET + 0x20;
     const uint32_t WEI_TIL_XSTEP = CFG_WEI_OFFSET + 0x24;
     const uint32_t WEI_COLS_ACTIVE = CFG_WEI_OFFSET + 0x28;
@@ -78,13 +76,10 @@ namespace sauria
     // Runtime Ifmapfeeder
     const uint32_t ACT_XLIM = CFG_ACT_OFFSET + 0x14;
     const uint32_t ACT_XSTEP = CFG_ACT_OFFSET + 0x18;
-
     const uint32_t ACT_YLIM = CFG_ACT_OFFSET + 0x1C;
     const uint32_t ACT_YSTEP = CFG_ACT_OFFSET + 0x20;
-
     const uint32_t ACT_CHLIM = CFG_ACT_OFFSET + 0x24;
     const uint32_t ACT_CHSTEP = CFG_ACT_OFFSET + 0x2C;
-
     const uint32_t ACT_TIL_XLIM = CFG_ACT_OFFSET + 0x30;
     const uint32_t ACT_TIL_XSTEP = CFG_ACT_OFFSET + 0x34;
     const uint32_t ACT_TIL_YLIM = CFG_ACT_OFFSET + 0x38;
@@ -103,24 +98,19 @@ namespace sauria
     const uint32_t IN_H = CFG_LAYER_OFFSET + 0x00;
     const uint32_t IN_W = CFG_LAYER_OFFSET + 0x04;
     const uint32_t IN_C = CFG_LAYER_OFFSET + 0x08;
-
     const uint32_t OUT_H = CFG_LAYER_OFFSET + 0x0C;
     const uint32_t OUT_W = CFG_LAYER_OFFSET + 0x10;
     const uint32_t OUT_C = CFG_LAYER_OFFSET + 0x14;
-
     const uint32_t KERNEL_H = CFG_LAYER_OFFSET + 0x18;
     const uint32_t KERNEL_W = CFG_LAYER_OFFSET + 0x1C;
-
     const uint32_t STRIDE = CFG_LAYER_OFFSET + 0x20;
     const uint32_t PADDING = CFG_LAYER_OFFSET + 0x24;
     const uint32_t DILATION = CFG_LAYER_OFFSET + 0x28;
     const uint32_t DIL_PAT = CFG_LAYER_OFFSET + 0x2C;
-
     const uint32_t TILE_X = CFG_LAYER_OFFSET + 0x30;
     const uint32_t TILE_Y = CFG_LAYER_OFFSET + 0x34;
     const uint32_t TILE_K = CFG_LAYER_OFFSET + 0x38;
     const uint32_t TILE_C = CFG_LAYER_OFFSET + 0x3C;
-
     const uint32_t X_USED = CFG_LAYER_OFFSET + 0x40;
     const uint32_t Y_USED = CFG_LAYER_OFFSET + 0x44;
     // ----------------------------------------------------

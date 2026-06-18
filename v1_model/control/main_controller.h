@@ -34,6 +34,7 @@ namespace sauria
         sc_in<uint32_t> i_incntlim{"i_incntlim"};
         sc_in<uint32_t> i_act_reps{"i_act_reps"};
         sc_in<uint32_t> i_wei_reps{"i_wei_reps"};
+        sc_in<uint32_t> i_ncontexts{"i_ncontexts"};
 
         // Feeder feedback signals
         sc_in<bool> i_act_done{"i_act_done"};
@@ -70,6 +71,8 @@ namespace sauria
         sc_out<bool> o_wei_clearfifo{"o_wei_clearfifo"};
         sc_out<bool> o_wei_pop_en{"o_wei_pop_en"};
         sc_out<bool> o_wei_cswitch{"o_wei_cswitch"};
+
+        sc_out<uint32_t> o_context_id{"o_context_id"};
 
         // Output Buffer / PSM Control Outputs
         sc_out<bool> o_outbuf_start{"o_outbuf_start"};
@@ -124,6 +127,7 @@ namespace sauria
         uint32_t cycle_cnt{0};
         uint32_t comp_cycles{0};
         uint32_t shift_cycles{0};
+        uint32_t context_cnt{0};
 
         void ctrl_process()
         {
@@ -133,6 +137,7 @@ namespace sauria
                 cycle_cnt = 0;
                 comp_cycles = 0;
                 shift_cycles = 0;
+                context_cnt = 0;
                 dbg_cycle = 0;
 
                 o_act_feeder_en.write(false);
@@ -164,6 +169,8 @@ namespace sauria
                 o_pipeline_en.write(false);
                 o_cswitch_arr.write(sc_bv<X_DIM>(0));
 
+                o_context_id.write(0);
+
                 o_done.write(false);
                 o_feed_deadlock.write(false);
 
@@ -178,6 +185,18 @@ namespace sauria
 
             // Fetch limits from registers
             uint32_t incntlim = i_incntlim.read();
+            uint32_t ncontexts = i_ncontexts.read();
+            if (ncontexts == 0)
+                ncontexts = 1;
+
+            o_act_start.write(false);
+            o_wei_start.write(false);
+
+            o_act_cnt_clear.write(false);
+            o_wei_cnt_clear.write(false);
+
+            o_outbuf_start.write(false);
+            o_cswitch_arr.write(sc_bv<X_DIM>(0));
 
             dbg_cycle++;
 
@@ -189,6 +208,8 @@ namespace sauria
                           << " incntlim=" << i_incntlim.read()
                           << " act_reps=" << i_act_reps.read()
                           << " wei_reps=" << i_wei_reps.read()
+                          << "ncontexts=" << i_ncontexts.read()
+                          << "context_cnt=" << context_cnt
                           << " act_cnt_en=" << o_act_cnt_en.read()
                           << " wei_cnt_en=" << o_wei_cnt_en.read()
                           << " act_pop_en=" << o_act_pop_en.read()
@@ -203,46 +224,90 @@ namespace sauria
             {
             case IDLE:
                 o_done.write(false);
+
                 o_sa_clear.write(false);
+
+                o_act_feeder_en.write(false);
+                o_wei_feeder_en.write(false);
+
                 o_act_feeder_clear.write(false);
                 o_act_clearfifo.write(false);
+
                 o_wei_feeder_clear.write(false);
                 o_wei_clearfifo.write(false);
+
                 o_outbuf_reset.write(false);
+                o_pipeline_en.write(false);
+
+                o_act_cnt_en.write(false);
+                o_wei_cnt_en.write(false);
+                o_act_pop_en.write(false);
+                o_wei_pop_en.write(false);
 
                 if (i_start.read())
                 {
-                    state = START_FLAGS;
+                    context_cnt = 0;
                     cycle_cnt = 0;
+                    comp_cycles = 0;
+                    shift_cycles = 0;
+
+                    state = START_FLAGS;
                 }
                 break;
 
             case START_FLAGS:
-                // Enable feeders and pulse start
+                // Enable feeders and pulse start for current context
                 o_act_feeder_en.write(true);
                 o_wei_feeder_en.write(true);
+
                 o_act_start.write(true);
                 o_wei_start.write(true);
+
                 o_act_valid.write(true);
                 o_wei_valid.write(true);
+
+                // Pulse counter clear at the beginning of each context.
+                // Feeders detect this as rising edge.
+                o_act_cnt_clear.write(true);
+                o_wei_cnt_clear.write(true);
+
                 o_pipeline_en.write(true);
+
+                std::cout << "[CTRL CONTEXT START] context="
+                          << context_cnt
+                          << " / "
+                          << ncontexts
+                          << std::endl;
+
+                o_context_id.write(context_cnt);
                 state = ARRAY_PREP;
                 break;
 
             case ARRAY_PREP:
-                o_act_start.write(false);
-                o_wei_start.write(false);
+                o_act_cnt_clear.write(false);
+                o_wei_cnt_clear.write(false);
+
                 o_act_cnt_en.write(true);
                 o_wei_cnt_en.write(true);
+
                 o_act_pop_en.write(true);
                 o_wei_pop_en.write(true);
+
                 comp_cycles = 0;
                 state = START_COMP;
                 break;
 
             case START_COMP:
+                o_act_cnt_en.write(true);
+                o_wei_cnt_en.write(true);
+
+                o_act_pop_en.write(true);
+                o_wei_pop_en.write(true);
+
+                o_pipeline_en.write(true);
+
                 comp_cycles++;
-                // Run computation for loop tile limit (incntlim)
+
                 if (comp_cycles >= incntlim)
                 {
                     state = ARRAY_CSWITCH;
@@ -270,37 +335,57 @@ namespace sauria
                 break;
 
             case WAIT_OBUF:
-                o_cswitch_arr.write(sc_bv<X_DIM>(0)); // Deassert context switch
-                o_outbuf_start.write(true);           // Start PSM collection
+                // Start PSM collection for this context
+                o_outbuf_start.write(true);
                 shift_cycles = 0;
                 state = LAST_WAIT;
                 break;
 
             case LAST_WAIT:
-                o_outbuf_start.write(false);
                 shift_cycles++;
-                // Wait for systolic array outputs to completely shift out via scan-chain
-                if (shift_cycles >= (uint32_t)(PE_LAT + 8))
+
+                // Wait for PSM/scan-chain to complete one context.
+                // Use either PSM shift_done or conservative fixed wait.
+                if (i_shift_done.read() || shift_cycles >= (uint32_t)(PE_LAT + 8))
                 {
-                    state = DONE;
+                    if ((context_cnt + 1) < ncontexts)
+                    {
+                        context_cnt++;
+
+                        // Prepare next context.
+                        cycle_cnt = 0;
+                        comp_cycles = 0;
+                        shift_cycles = 0;
+
+                        state = START_FLAGS;
+                    }
+                    else
+                    {
+                        state = DONE;
+                    }
                 }
                 break;
 
             case DONE:
                 o_done.write(true);
+
                 o_act_feeder_en.write(false);
                 o_wei_feeder_en.write(false);
+
                 o_act_cnt_en.write(false);
                 o_wei_cnt_en.write(false);
+
                 o_act_pop_en.write(false);
                 o_wei_pop_en.write(false);
-                o_outbuf_start.write(false);
+
                 o_pipeline_en.write(false);
 
-                if (!i_start.read())
-                {
-                    state = IDLE;
-                }
+                std::cout << "[CTRL DONE] completed contexts="
+                          << ncontexts
+                          << std::endl;
+
+                o_context_id.write(0);
+                state = IDLE;
                 break;
 
             default:

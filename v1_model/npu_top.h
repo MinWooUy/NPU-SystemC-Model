@@ -75,6 +75,10 @@ namespace sauria
             SC_METHOD(done_latch_logic);
             sensitive << i_clk.pos();
             dont_initialize();
+
+            SC_METHOD(debug_stream_reference_monitor);
+            sensitive << i_clk.pos();
+            dont_initialize();
             // ----------------------------------------------------
             // Signal Interconnections
             // ----------------------------------------------------
@@ -220,6 +224,7 @@ namespace sauria
             ctrl_inst->o_wei_clearfifo(s_wei_clearfifo);
             ctrl_inst->o_wei_pop_en(s_wei_pop_en);
             ctrl_inst->o_wei_cswitch(s_wei_cswitch);
+            ctrl_inst->o_context_id(s_context_id);
 
             // Control outputs routed to PSM
             ctrl_inst->o_outbuf_start(s_psm_start);
@@ -241,6 +246,7 @@ namespace sauria
             act_feeder->i_clearfifo(s_act_clearfifo);
             act_feeder->i_pop_en(s_act_pop_en);
             act_feeder->i_finalctx(s_act_finalctx);
+            act_feeder->i_context_id(s_context_id);
 
             act_feeder->o_act_done(s_act_done);
             act_feeder->o_act_til_done(s_act_til_done);
@@ -361,6 +367,7 @@ namespace sauria
             ctrl_inst->i_incntlim(s_incntlim);
             ctrl_inst->i_act_reps(s_act_reps);
             ctrl_inst->i_wei_reps(s_wei_reps);
+            ctrl_inst->i_ncontexts(s_out_ncontexts);
 
             psm_inst->i_cxlim(s_cxlim);
             psm_inst->i_cxstep(s_cxstep);
@@ -374,7 +381,7 @@ namespace sauria
             psm_inst->i_ncontexts(s_out_ncontexts);
             psm_inst->i_preload_en(s_out_preload_en);
             psm_inst->i_rows_active(s_rows_active);
-            psm_inst->i_inactive_cols(s_out_inactive_cols);
+            // psm_inst->i_inactive_cols(s_out_inactive_cols);
 
             // Config registers module bindings
             config_regs_inst->o_incntlim(s_incntlim);
@@ -421,6 +428,145 @@ namespace sauria
             }
 
             o_done.write(done_latched_reg || s_ctrl_done.read());
+        }
+
+        void clear_debug_stream_ref()
+        {
+            for (int y = 0; y < Y_DIM; y++)
+            {
+                for (int x = 0; x < X_DIM; x++)
+                {
+                    dbg_ref_mat[y][x] = 0.0;
+                }
+            }
+
+            dbg_ref_cycle = 0;
+            dbg_compare_count = 0;
+        }
+
+        void debug_stream_reference_monitor()
+        {
+            if (!i_rstn.read())
+            {
+                clear_debug_stream_ref();
+                dbg_ref_ctx = 0;
+                dbg_ref_cycle = 0;
+                dbg_ref_active = false;
+                dbg_ref_initialized = false;
+                return;
+            }
+
+            // -----------------------------------------------------
+            // Start new reference accumulation at each context clear
+            // -----------------------------------------------------
+            bool new_context_pulse =
+                s_act_cnt_clear.read() &&
+                s_wei_cnt_clear.read();
+
+            if (new_context_pulse)
+            {
+                dbg_ref_ctx = s_context_id.read();
+
+                clear_debug_stream_ref();
+
+                dbg_ref_active = true;
+                dbg_ref_initialized = true;
+
+                std::cout << "\n[STREAM REF START]"
+                          << " context=" << dbg_ref_ctx
+                          << " cxlim=" << s_cxlim.read()
+                          << " cxstep=" << s_cxstep.read()
+                          << std::endl;
+            }
+
+            // -----------------------------------------------------
+            // Accumulate software reference from actual SA inputs
+            // C[y][x] += act_arr[y] * wei_arr[x]
+            // -----------------------------------------------------
+            if (dbg_ref_active &&
+                s_pipeline_en.read() &&
+                s_act_pop_en.read() &&
+                s_wei_pop_en.read())
+            {
+                act_vector_t<Y_DIM, T_ACT> act_vec = s_act_arr.read();
+                wei_vector_t<X_DIM, T_WEI> wei_vec = s_wei_arr.read();
+
+                for (int y = 0; y < Y_DIM; y++)
+                {
+                    for (int x = 0; x < X_DIM; x++)
+                    {
+                        dbg_ref_mat[y][x] +=
+                            static_cast<double>(act_vec[y]) *
+                            static_cast<double>(wei_vec[x]);
+                    }
+                }
+
+                if (dbg_ref_cycle < 8)
+                {
+                    std::cout << "[STREAM REF ACC]"
+                              << " ctx=" << dbg_ref_ctx
+                              << " cycle=" << dbg_ref_cycle
+                              << " act0=" << act_vec[0]
+                              << " act1=" << act_vec[1]
+                              << " wei0=" << wei_vec[0]
+                              << " wei1=" << wei_vec[1]
+                              << " ref00=" << dbg_ref_mat[0][0]
+                              << " ref10=" << dbg_ref_mat[1][0]
+                              << std::endl;
+                }
+
+                dbg_ref_cycle++;
+            }
+
+            // -----------------------------------------------------
+            // Compare PSM/SRAMC write data with stream reference
+            // Assumption: each SRAMC vector write corresponds to one
+            // output column, containing Y_DIM rows.
+            // -----------------------------------------------------
+            if (dbg_ref_initialized && s_sramc_wren.read())
+            {
+                uint32_t addr = s_sramc_addr.read();
+
+                uint32_t context_stride =
+                    s_cxlim.read() * s_cxstep.read();
+
+                uint32_t ctx_base =
+                    dbg_ref_ctx * context_stride;
+
+                if (addr >= ctx_base && s_cxstep.read() != 0)
+                {
+                    uint32_t col =
+                        (addr - ctx_base) / s_cxstep.read();
+
+                    if (col < X_DIM && dbg_compare_count < 64)
+                    {
+                        psum_vector_t<Y_DIM, T_PSUM> actual =
+                            s_sramc_wdata.read();
+
+                        std::cout << "\n[STREAM REF CMP]"
+                                  << " ctx=" << dbg_ref_ctx
+                                  << " addr=" << addr
+                                  << " col=" << col
+                                  << " ref_vs_actual=[\n";
+
+                        for (int y = 0; y < Y_DIM; y++)
+                        {
+                            double ref_val = dbg_ref_mat[y][col];
+                            double act_val = static_cast<double>(actual[y]);
+
+                            std::cout << "  y=" << y
+                                      << " ref=" << ref_val
+                                      << " actual=" << act_val
+                                      << " diff=" << (act_val - ref_val)
+                                      << "\n";
+                        }
+
+                        std::cout << "]" << std::endl;
+
+                        dbg_compare_count++;
+                    }
+                }
+            }
         }
 
         void debug_execution_monitor()
@@ -614,6 +760,17 @@ namespace sauria
         Psm<X_DIM, Y_DIM, T_PSUM, SRAMC_CAP> *psm_inst{nullptr};
         ConfigRegs<32, 32, X_DIM, Y_DIM, 2, 15, 15, 15, DILP_W, 8> *config_regs_inst{nullptr};
 
+        // ---------------------------------------------------------
+        // Debug: software reference from actual act_arr/wei_arr stream
+        // ---------------------------------------------------------
+        double dbg_ref_mat[Y_DIM][X_DIM];
+        uint32_t dbg_ref_ctx{0};
+        uint32_t dbg_ref_cycle{0};
+        bool dbg_ref_active{false};
+        bool dbg_ref_initialized{false};
+
+        uint32_t dbg_compare_count{0};
+
         // Internal signals for inter-module communication (memory)
         sc_signal<uint32_t> s_act_base_addr;
         sc_signal<uint32_t> s_wei_base_addr;
@@ -649,6 +806,7 @@ namespace sauria
         sc_signal<bool> s_act_clearfifo{"s_act_clearfifo"};
         sc_signal<bool> s_act_pop_en{"s_act_pop_en"};
         sc_signal<bool> s_act_finalctx{"s_act_finalctx"};
+
         // Full SAURIA IFMAP runtime config
         sc_signal<uint32_t> s_act_xlim{"s_act_xlim"};
         sc_signal<uint32_t> s_act_xstep{"s_act_xstep"};
@@ -664,6 +822,7 @@ namespace sauria
         sc_signal<uint32_t> s_act_incntstep{"s_act_incntstep"};
         sc_signal<uint32_t> s_act_outcntlim{"s_act_outcntlim"};
         sc_signal<uint32_t> s_act_outcntstep{"s_act_outcntstep"};
+        sc_signal<uint32_t> s_context_id{"s_context_id"};
 
         sc_signal<bool> s_wei_feeder_en{"s_wei_feeder_en"};
         sc_signal<bool> s_wei_feeder_clear{"s_wei_feeder_clear"};

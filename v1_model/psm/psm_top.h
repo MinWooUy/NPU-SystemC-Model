@@ -70,8 +70,25 @@ namespace sauria
         uint32_t addr_reg{0};
         uint32_t shift_cnt{0};
         uint32_t delay_cnt{0};
+        uint32_t write_limit_vectors{0};
         bool shifting{false};
         bool preload_mode{false};
+
+        uint32_t psm_context_cnt{0};
+        uint32_t context_addr_base{0};
+
+        uint32_t get_write_limit_vectors()
+        {
+            // One PSM start corresponds to one output context scan.
+            // For current controller, one compute phase only produces CXLIM vectors.
+            // Full tile output requires repeating this for NCONTEXTS contexts.
+            if (i_cxlim.read() != 0)
+            {
+                return i_cxlim.read();
+            }
+
+            return 0;
+        }
 
         void psm_process()
         {
@@ -91,6 +108,11 @@ namespace sauria
                 addr_reg = 0;
                 shift_cnt = 0;
                 delay_cnt = 0;
+                write_limit_vectors = 0;
+
+                psm_context_cnt = 0;
+                context_addr_base = 0;
+
                 shifting = false;
                 preload_mode = false;
                 return;
@@ -100,25 +122,51 @@ namespace sauria
             {
                 shifting = true;
                 shift_cnt = 0;
-                addr_reg = 0;
                 delay_cnt = 0;
-                preload_mode = i_preload_en.read();
+
+                preload_mode = false;
+
+                write_limit_vectors = get_write_limit_vectors();
+
+                // One context writes CXLIM vectors.
+                // Each vector address increments by CXSTEP.
+                // Therefore each context should start at:
+                // context_idx * CXLIM * CXSTEP
+                uint32_t one_context_addr_span =
+                    i_cxlim.read() * i_cxstep.read();
+
+                context_addr_base =
+                    psm_context_cnt * one_context_addr_span;
+
+                addr_reg = context_addr_base;
+
                 o_cscan_en.write(true);
                 o_done.write(false);
                 o_shift_done.write(false);
+                o_finalwrite.write(false);
 
-                if (preload_mode)
+                o_sramc_rden.write(false);
+                o_sramc_wren.write(false);
+
+                static int dbg_psm_start_count = 0;
+                if (dbg_psm_start_count < 16)
                 {
-                    o_sramc_rden.write(true);
-                    // o_sramc_addr.write(0);
-                    o_sramc_addr.write(i_out_base_addr.read());
-                    o_sramc_wren.write(false);
+                    std::cout << "[PSM START]"
+                              << " context=" << psm_context_cnt
+                              << " / " << i_ncontexts.read()
+                              << " preload_en_cfg=" << i_preload_en.read()
+                              << " forced_write_mode=1"
+                              << " cxlim=" << i_cxlim.read()
+                              << " cxstep=" << i_cxstep.read()
+                              << " context_addr_base=" << context_addr_base
+                              << " one_context_vectors=" << write_limit_vectors
+                              << " full_tile_vectors=" << ((i_til_cklim.read() + Y_DIM - 1) / Y_DIM)
+                              << " til_cklim=" << i_til_cklim.read()
+                              << " til_ckstep=" << i_til_ckstep.read()
+                              << std::endl;
                 }
-                else
-                {
-                    o_sramc_rden.write(false);
-                    o_sramc_wren.write(false);
-                }
+                dbg_psm_start_count++;
+
                 return;
             }
 
@@ -167,19 +215,21 @@ namespace sauria
                     }
                     else
                     {
-                        if (shift_cnt < i_cxlim.read())
+                        if (shift_cnt < write_limit_vectors)
                         {
                             psum_vector_t<Y_DIM, T_PSUM> array_out = i_c_arr.read();
                             static int dbg_psm_write_count = 0;
 
-                            if (dbg_psm_write_count < 64)
+                            if (dbg_psm_write_count < 128)
                             {
                                 std::cout << "[PSM DEBUG] write_count=" << dbg_psm_write_count
+                                          << " context=" << psm_context_cnt
+                                          << " context_addr_base=" << context_addr_base
                                           << " addr=" << (i_out_base_addr.read() + addr_reg)
                                           << " shift_cnt=" << shift_cnt
+                                          << " write_limit_vectors=" << write_limit_vectors
                                           << " cxlim=" << i_cxlim.read()
                                           << " cxstep=" << i_cxstep.read()
-                                          << " rows_active=" << i_rows_active.read()
                                           << " i_c_arr=[";
 
                                 for (int i = 0; i < Y_DIM; i++)
@@ -190,6 +240,7 @@ namespace sauria
                                 }
 
                                 std::cout << "]" << std::endl;
+                                dbg_psm_write_count++;
                             }
 
                             o_sramc_wren.write(true);
@@ -204,10 +255,40 @@ namespace sauria
                         else
                         {
                             shifting = false;
-                            o_cscan_en.write(false);
+
                             o_sramc_wren.write(false);
-                            o_shift_done.write(true);
+                            o_sramc_rden.write(false);
+
                             o_done.write(true);
+                            o_shift_done.write(true);
+                            o_cscan_en.write(false);
+                            o_finalwrite.write(false);
+
+                            uint32_t nctx = i_ncontexts.read();
+                            if (nctx == 0)
+                            {
+                                nctx = 1;
+                            }
+
+                            if ((psm_context_cnt + 1) < nctx)
+                            {
+                                psm_context_cnt++;
+                            }
+                            else
+                            {
+                                psm_context_cnt = 0;
+                            }
+
+                            static int dbg_psm_done_count = 0;
+                            if (dbg_psm_done_count < 16)
+                            {
+                                std::cout << "[PSM DONE]"
+                                          << " completed_context="
+                                          << ((psm_context_cnt == 0) ? (nctx - 1) : (psm_context_cnt - 1))
+                                          << " next_context=" << psm_context_cnt
+                                          << std::endl;
+                            }
+                            dbg_psm_done_count++;
                         }
                     }
                 }

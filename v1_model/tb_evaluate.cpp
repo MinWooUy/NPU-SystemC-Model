@@ -41,6 +41,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <cstring>
 #include <iomanip>
 #include <vector>
 #include <unordered_map>
@@ -890,6 +891,62 @@ private:
                   << loaded_bytes << std::endl;
     }
 
+    int32_t ref_conv_chw_oihw(
+        const std::vector<uint8_t> &dram,
+        uint32_t act_base,
+        uint32_t wei_base,
+        int oc,
+        int oy,
+        int ox)
+    {
+        const int C = 64;
+        const int H = 6;
+        const int W = 10;
+        const int KH = 3;
+        const int KW = 3;
+
+        int32_t acc = 0;
+
+        for (int ic = 0; ic < C; ic++)
+        {
+            for (int ky = 0; ky < KH; ky++)
+            {
+                for (int kx = 0; kx < KW; kx++)
+                {
+                    uint32_t act_off =
+                        ic * H * W +
+                        (oy + ky) * W +
+                        (ox + kx);
+
+                    uint32_t wei_off =
+                        ((oc * C + ic) * KH + ky) * KW + kx;
+
+                    int32_t a = read_i8_from_dram(dram, act_base, act_off);
+                    int32_t w = read_i8_from_dram(dram, wei_base, wei_off);
+
+                    acc += a * w;
+                }
+            }
+        }
+
+        return acc;
+    }
+
+    int8_t read_i8_from_dram(
+        const std::vector<uint8_t> &dram,
+        uint32_t base,
+        uint32_t offset)
+    {
+        uint32_t addr = base + offset;
+
+        if (addr >= dram.size())
+        {
+            return 0;
+        }
+
+        return static_cast<int8_t>(dram[addr]);
+    }
+
     int32_t read_i32_le_from_bytes(
         const std::vector<uint8_t> &mem,
         uint32_t byte_addr)
@@ -906,6 +963,46 @@ private:
             (static_cast<uint32_t>(mem[byte_addr + 3]) << 24);
 
         return static_cast<int32_t>(v);
+    }
+
+    uint32_t read_u32_le_from_bytes(
+        const std::vector<uint8_t> &mem,
+        uint32_t byte_addr)
+    {
+        if (byte_addr + 3 >= mem.size())
+        {
+            return 0;
+        }
+
+        return (static_cast<uint32_t>(mem[byte_addr + 0]) << 0) |
+               (static_cast<uint32_t>(mem[byte_addr + 1]) << 8) |
+               (static_cast<uint32_t>(mem[byte_addr + 2]) << 16) |
+               (static_cast<uint32_t>(mem[byte_addr + 3]) << 24);
+    }
+
+    std::vector<int32_t> load_gold_delta_output_i32(
+        const std::vector<uint8_t> &initial_dram,
+        const std::vector<uint8_t> &gold_dram,
+        uint32_t out_dram_base,
+        uint32_t n_elems)
+    {
+        std::vector<int32_t> delta;
+        delta.reserve(n_elems);
+
+        for (uint32_t i = 0; i < n_elems; i++)
+        {
+            uint32_t byte_addr = out_dram_base + i * 4;
+
+            uint32_t init_raw = read_u32_le_from_bytes(initial_dram, byte_addr);
+            uint32_t gold_raw = read_u32_le_from_bytes(gold_dram, byte_addr);
+
+            // Two's-complement subtraction. This matches int32 accumulator behavior.
+            uint32_t delta_raw = gold_raw - init_raw;
+
+            delta.push_back(static_cast<int32_t>(delta_raw));
+        }
+
+        return delta;
     }
 
     std::vector<int32_t> load_gold_output_i32(
@@ -973,7 +1070,7 @@ private:
         uint32_t expected_elems = cfg.til_cklim;
         if (expected_elems == 0)
         {
-            expected_elems = ncontexts * vectors_per_context * Y_DIM;
+            expected_elems = ncontexts * vectors_per_context * EVAL_Y;
         }
 
         out.reserve(expected_elems);
@@ -1040,6 +1137,26 @@ private:
         std::cout << "=========================================\n\n";
 
         return out;
+    }
+
+    float read_f32_le_from_bytes(
+        const std::vector<uint8_t> &mem,
+        uint32_t byte_addr)
+    {
+        if (byte_addr + 3 >= mem.size())
+        {
+            return 0.0f;
+        }
+
+        uint32_t raw =
+            (static_cast<uint32_t>(mem[byte_addr + 0]) << 0) |
+            (static_cast<uint32_t>(mem[byte_addr + 1]) << 8) |
+            (static_cast<uint32_t>(mem[byte_addr + 2]) << 16) |
+            (static_cast<uint32_t>(mem[byte_addr + 3]) << 24);
+
+        float f;
+        std::memcpy(&f, &raw, sizeof(float));
+        return f;
     }
 
     void compare_sramc_with_gold(
@@ -1308,6 +1425,176 @@ private:
         else
         {
             std::cout << "Result: No value match. Likely compute/datapath mismatch.\n";
+        }
+
+        std::cout << "=========================================\n\n";
+    }
+
+    void debug_reference_conv_vs_gold_delta(
+        const std::vector<uint8_t> &initial_dram,
+        const std::vector<int32_t> &gold_delta,
+        uint32_t act_base,
+        uint32_t wei_base)
+    {
+        std::cout << "\n=========================================\n";
+        std::cout << "REFERENCE CONV CHW/OIHW VS GOLD_DELTA\n";
+        std::cout << "=========================================\n";
+
+        const int OC = 16;
+        const int OH = 4;
+        const int OW = 8;
+
+        uint32_t mismatches = 0;
+        uint32_t printed = 0;
+
+        for (int oc = 0; oc < OC; oc++)
+        {
+            for (int oy = 0; oy < OH; oy++)
+            {
+                for (int ox = 0; ox < OW; ox++)
+                {
+                    uint32_t idx =
+                        (oc * OH * OW) +
+                        (oy * OW) +
+                        ox;
+
+                    int32_t ref =
+                        ref_conv_chw_oihw(
+                            initial_dram,
+                            act_base,
+                            wei_base,
+                            oc,
+                            oy,
+                            ox);
+
+                    int32_t gold =
+                        (idx < gold_delta.size()) ? gold_delta[idx] : 0;
+
+                    if (ref != gold)
+                    {
+                        mismatches++;
+
+                        if (printed < 32)
+                        {
+                            std::cout << "idx=" << idx
+                                      << " oc=" << oc
+                                      << " oy=" << oy
+                                      << " ox=" << ox
+                                      << " ref=" << ref
+                                      << " gold_delta=" << gold
+                                      << " diff=" << (ref - gold)
+                                      << "\n";
+                            printed++;
+                        }
+                    }
+                }
+            }
+        }
+
+        std::cout << "Compared elements : " << (OC * OH * OW) << "\n";
+        std::cout << "Mismatches        : " << mismatches << "\n";
+
+        if (mismatches == 0)
+        {
+            std::cout << "REF CONV PASS: gold_delta matches standard CHW/OIHW convolution.\n";
+        }
+        else
+        {
+            std::cout << "REF CONV FAIL: SAURIA data layout is not simple CHW/OIHW, or output order differs.\n";
+        }
+
+        std::cout << "=========================================\n\n";
+    }
+
+    void debug_gold_delta_preview(
+        const std::vector<int32_t> &delta,
+        uint32_t n = 32)
+    {
+        std::cout << "\n=========================================\n";
+        std::cout << "GOLD DELTA PREVIEW: gold_dram - initial_dram\n";
+        std::cout << "=========================================\n";
+
+        for (uint32_t i = 0; i < delta.size() && i < n; i++)
+        {
+            std::cout << "delta[" << i << "] = " << delta[i] << "\n";
+        }
+
+        std::cout << "=========================================\n\n";
+    }
+
+    void debug_dram_output_region_sanity(
+        const std::vector<uint8_t> &initial_dram,
+        const std::vector<uint8_t> &gold_dram,
+        uint32_t out_base,
+        uint32_t nbytes)
+    {
+        std::cout << "\n=========================================\n";
+        std::cout << "GOLD_DRAM OUTPUT REGION SANITY CHECK\n";
+        std::cout << "=========================================\n";
+
+        std::cout << "OUT base : 0x" << std::hex << out_base << std::dec << "\n";
+        std::cout << "nbytes   : " << nbytes << "\n";
+        std::cout << "initial_dram size : " << initial_dram.size() << "\n";
+        std::cout << "gold_dram size    : " << gold_dram.size() << "\n";
+
+        if (out_base + nbytes > initial_dram.size() ||
+            out_base + nbytes > gold_dram.size())
+        {
+            std::cout << "[ERROR] OUT region out of range.\n";
+            std::cout << "=========================================\n\n";
+            return;
+        }
+
+        uint32_t changed_bytes = 0;
+
+        for (uint32_t i = 0; i < nbytes; i++)
+        {
+            if (initial_dram[out_base + i] != gold_dram[out_base + i])
+            {
+                changed_bytes++;
+            }
+        }
+
+        std::cout << "Changed bytes in OUT region: "
+                  << changed_bytes << " / " << nbytes << "\n";
+
+        std::cout << "\nFirst 64 bytes at OUT region\n";
+        std::cout << "INITIAL: ";
+        for (uint32_t i = 0; i < 64 && i < nbytes; i++)
+        {
+            std::cout << std::hex << std::setw(2) << std::setfill('0')
+                      << static_cast<uint32_t>(initial_dram[out_base + i])
+                      << " ";
+        }
+
+        std::cout << "\nGOLD   : ";
+        for (uint32_t i = 0; i < 64 && i < nbytes; i++)
+        {
+            std::cout << std::hex << std::setw(2) << std::setfill('0')
+                      << static_cast<uint32_t>(gold_dram[out_base + i])
+                      << " ";
+        }
+        std::cout << std::dec << std::setfill(' ') << "\n";
+
+        std::cout << "\nInterpret GOLD first 16 elements:\n";
+        for (uint32_t i = 0; i < 16; i++)
+        {
+            uint32_t byte_addr = out_base + i * 4;
+
+            int32_t as_i32 = read_i32_le_from_bytes(gold_dram, byte_addr);
+            float as_f32 = read_f32_le_from_bytes(gold_dram, byte_addr);
+
+            std::cout << "gold[" << i << "] "
+                      << "bytes=["
+                      << std::hex << std::setw(2) << std::setfill('0')
+                      << static_cast<uint32_t>(gold_dram[byte_addr + 0]) << " "
+                      << static_cast<uint32_t>(gold_dram[byte_addr + 1]) << " "
+                      << static_cast<uint32_t>(gold_dram[byte_addr + 2]) << " "
+                      << static_cast<uint32_t>(gold_dram[byte_addr + 3]) << std::dec
+                      << std::setfill(' ')
+                      << "] i32=" << as_i32
+                      << " f32=" << as_f32
+                      << "\n";
         }
 
         std::cout << "=========================================\n\n";
@@ -1849,7 +2136,10 @@ private:
         compare_sramc_snapshots(sramc_before_run, sramc_after_run);
 
         std::string gold_dram_path = "stimuli/gold_dram.txt";
+        std::string initial_dram_path = "stimuli/initial_dram.txt";
         std::vector<uint8_t> gold_dram = load_initial_dram_file(gold_dram_path);
+        std::vector<uint8_t> initial_dram_check = load_initial_dram_file(initial_dram_path);
+
         if (!decoded_cfg_valid)
         {
             std::cerr << "[TB ERROR] decoded_cfg_runtime is not valid. "
@@ -1860,12 +2150,23 @@ private:
         {
             uint32_t n_output_elems = decoded_cfg_runtime.til_cklim;
 
+            std::vector<uint8_t> initial_dram_check = load_initial_dram_file(initial_dram_path);
             std::vector<uint8_t> gold_dram = load_initial_dram_file(gold_dram_path);
             std::vector<int32_t> sramc_out = dump_sramc_psm_layout_i32(decoded_cfg_runtime);
             std::vector<int32_t> gold_out = load_gold_output_i32(gold_dram, out_dram_base_runtime, n_output_elems);
+            std::vector<int32_t> gold_delta = load_gold_delta_output_i32(initial_dram_check, gold_dram, out_dram_base_runtime, n_output_elems);
 
+            uint32_t n_output_bytes = decoded_cfg_runtime.til_cklim * 4;
+            debug_dram_output_region_sanity(initial_dram_check, gold_dram, out_dram_base_runtime, n_output_bytes);
+
+            debug_gold_delta_preview(gold_delta, 32);
+            debug_reference_conv_vs_gold_delta(initial_dram_check, gold_delta, act_dram_base_runtime, wei_dram_base_runtime);
+            std::cout << "\n[COMPARE 1] SRAMC vs GOLD absolute output\n";
             compare_sramc_with_gold(sramc_out, gold_out);
             analyze_value_match_between_sramc_and_gold(sramc_out, gold_out);
+            std::cout << "\n[COMPARE 2] SRAMC vs GOLD DELTA output\n";
+            compare_sramc_with_gold(sramc_out, gold_delta);
+            analyze_value_match_between_sramc_and_gold(sramc_out, gold_delta);
         }
         if (!decoded_cfg_valid)
         {
@@ -1877,21 +2178,10 @@ private:
         {
             uint32_t n_output_elems = decoded_cfg_runtime.til_cklim;
 
-            std::vector<uint8_t> gold_dram =
-                load_initial_dram_file(gold_dram_path);
-
-            std::vector<int32_t> sramc_out =
-                dump_sramc_linear_i32(n_output_elems);
-
-            std::vector<int32_t> gold_out =
-                load_gold_output_i32(
-                    gold_dram,
-                    out_dram_base_runtime,
-                    n_output_elems);
-
-            compare_sramc_with_gold(
-                sramc_out,
-                gold_out);
+            std::vector<uint8_t> gold_dram = load_initial_dram_file(gold_dram_path);
+            std::vector<int32_t> sramc_out = dump_sramc_linear_i32(n_output_elems);
+            std::vector<int32_t> gold_out = load_gold_output_i32(gold_dram, out_dram_base_runtime, n_output_elems);
+            compare_sramc_with_gold(sramc_out, gold_out);
         }
 
         debug_output_sramc_after_run();

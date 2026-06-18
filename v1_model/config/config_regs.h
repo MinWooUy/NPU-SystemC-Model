@@ -172,6 +172,7 @@ namespace sauria
         uint32_t r_cklim{96};
         uint32_t r_ckstep{1};
         uint32_t r_out_ncontexts{1};
+        uint32_t r_out_til_cklim{0};
         uint32_t r_out_til_cylim{0};
         uint32_t r_out_til_cystep{0};
         uint32_t r_out_til_ckstep{1};

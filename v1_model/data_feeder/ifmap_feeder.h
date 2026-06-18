@@ -52,6 +52,7 @@ namespace sauria
         sc_in<uint32_t> i_act_til_xstep{"i_act_til_xstep"};
         sc_in<uint32_t> i_act_til_ylim{"i_act_til_ylim"};
         sc_in<uint32_t> i_act_til_ystep{"i_act_til_ystep"};
+        sc_in<uint32_t> i_context_id{"i_context_id"};
 
         // Memory Interface to SRAM A
         sc_out<uint32_t> o_srama_addr{"o_srama_addr"};
@@ -256,7 +257,9 @@ namespace sauria
 
                     if (sauria_addr_mode)
                     {
-                        final_addr = i_act_base_addr.read() + act_ch_cnt + act_y_cnt + act_x_cnt;
+                        uint32_t context_y_offset = i_context_id.read() * i_act_til_ystep.read();
+
+                        final_addr = i_act_base_addr.read() + context_y_offset + act_ch_cnt + act_y_cnt + act_x_cnt;
                     }
                     else
                     {
@@ -272,6 +275,8 @@ namespace sauria
                     {
                         std::cout << "[DEBUG IFMAP] read_count=" << dbg_ifmap_read_count
                                   << " mode=" << (sauria_addr_mode ? "SAURIA" : "LINEAR")
+                                  << "context_id=" << i_context_id.read()
+                                  << "context_y_offset" << (i_context_id.read() * i_act_til_ystep.read())
                                   << " feeder_en=" << i_feeder_en.read()
                                   << " cnt_en=" << i_cnt_en.read()
                                   << " cnt_clear=" << i_cnt_clear.read()
