@@ -36,6 +36,7 @@
 #endif
 
 #include "npu_top.h"
+#include <map>
 #include <iomanip>
 #include <cmath>
 #include <fstream>
@@ -753,6 +754,318 @@ private:
         o_host_wren_approx.write(false);
         o_host_wren_gated.write(false);
         wait(); // Ensure data resolves
+    }
+
+    uint32_t offset3_perm(
+        const std::string &order,
+        int a0, int a1, int a2,
+        int d0, int d1, int d2)
+    {
+        std::map<char, int> idx;
+        std::map<char, int> dim;
+
+        idx[order[0]] = a0;
+        idx[order[1]] = a1;
+        idx[order[2]] = a2;
+
+        dim[order[0]] = d0;
+        dim[order[1]] = d1;
+        dim[order[2]] = d2;
+
+        uint32_t off = 0;
+        uint32_t stride = 1;
+
+        for (int p = 2; p >= 0; p--)
+        {
+            char c = order[p];
+            off += idx[c] * stride;
+            stride *= dim[c];
+        }
+
+        return off;
+    }
+
+    uint32_t offset4_perm(
+        const std::string &order,
+        int a0, int a1, int a2, int a3,
+        int d0, int d1, int d2, int d3)
+    {
+        std::map<char, int> idx;
+        std::map<char, int> dim;
+
+        idx[order[0]] = a0;
+        idx[order[1]] = a1;
+        idx[order[2]] = a2;
+        idx[order[3]] = a3;
+
+        dim[order[0]] = d0;
+        dim[order[1]] = d1;
+        dim[order[2]] = d2;
+        dim[order[3]] = d3;
+
+        uint32_t off = 0;
+        uint32_t stride = 1;
+
+        for (int p = 3; p >= 0; p--)
+        {
+            char c = order[p];
+            off += idx[c] * stride;
+            stride *= dim[c];
+        }
+
+        return off;
+    }
+
+    int32_t ref_conv_with_layout(
+        const std::vector<uint8_t> &dram,
+        uint32_t act_base,
+        uint32_t wei_base,
+        int oc,
+        int oy,
+        int ox,
+        const std::string &act_layout,
+        const std::string &wei_layout)
+    {
+        const int C = 64;
+        const int H = 6;
+        const int W = 10;
+        const int O = 16;
+        const int KH = 3;
+        const int KW = 3;
+
+        int32_t acc = 0;
+
+        for (int ic = 0; ic < C; ic++)
+        {
+            for (int ky = 0; ky < KH; ky++)
+            {
+                for (int kx = 0; kx < KW; kx++)
+                {
+                    uint32_t act_off = 0;
+
+                    if (act_layout == "CHW")
+                    {
+                        act_off = (ic * H * W) + ((oy + ky) * W) + (ox + kx);
+                    }
+                    else if (act_layout == "HWC")
+                    {
+                        act_off = ((oy + ky) * W * C) + ((ox + kx) * C) + ic;
+                    }
+                    else if (act_layout == "HCW")
+                    {
+                        act_off = ((oy + ky) * C * W) + (ic * W) + (ox + kx);
+                    }
+                    else if (act_layout == "WCH")
+                    {
+                        act_off = ((ox + kx) * C * H) + (ic * H) + (oy + ky);
+                    }
+                    else if (act_layout == "WHC")
+                    {
+                        act_off = ((ox + kx) * H * C) + ((oy + ky) * C) + ic;
+                    }
+                    else
+                    {
+                        act_off = (ic * H * W) + ((oy + ky) * W) + (ox + kx);
+                    }
+
+                    uint32_t wei_off = 0;
+
+                    // order letters:
+                    // O = output channel
+                    // I = input channel
+                    // Y = kernel y
+                    // X = kernel x
+                    std::map<char, int> wi;
+                    std::map<char, int> wd;
+
+                    wi['O'] = oc;
+                    wi['I'] = ic;
+                    wi['Y'] = ky;
+                    wi['X'] = kx;
+
+                    wd['O'] = O;
+                    wd['I'] = C;
+                    wd['Y'] = KH;
+                    wd['X'] = KW;
+
+                    uint32_t stride = 1;
+                    for (int p = 3; p >= 0; p--)
+                    {
+                        char c = wei_layout[p];
+                        wei_off += wi[c] * stride;
+                        stride *= wd[c];
+                    }
+
+                    int32_t a = read_i8_from_dram(dram, act_base, act_off);
+                    int32_t w = read_i8_from_dram(dram, wei_base, wei_off);
+
+                    acc += a * w;
+                }
+            }
+        }
+
+        return acc;
+    }
+
+    uint32_t output_index_with_layout(
+        int oc,
+        int oy,
+        int ox,
+        const std::string &out_layout)
+    {
+        const int O = 16;
+        const int OH = 4;
+        const int OW = 8;
+
+        std::map<char, int> oi;
+        std::map<char, int> od;
+
+        oi['O'] = oc;
+        oi['Y'] = oy;
+        oi['X'] = ox;
+
+        od['O'] = O;
+        od['Y'] = OH;
+        od['X'] = OW;
+
+        uint32_t off = 0;
+        uint32_t stride = 1;
+
+        for (int p = 2; p >= 0; p--)
+        {
+            char c = out_layout[p];
+            off += oi[c] * stride;
+            stride *= od[c];
+        }
+
+        return off;
+    }
+
+    void brute_force_conv_layout_vs_gold_delta(
+        const std::vector<uint8_t> &initial_dram,
+        const std::vector<int32_t> &gold_delta,
+        uint32_t act_base,
+        uint32_t wei_base)
+    {
+        std::vector<std::string> act_layouts = {
+            "CHW", "HWC", "HCW", "WCH", "WHC"};
+
+        std::vector<std::string> wei_layouts = {
+            "OIYX", "OIXY", "OYXI", "OXYI",
+            "IOYX", "IOXY", "IYXO", "IXYO",
+            "YXIO", "XYIO", "YXO I"};
+
+        // Fix typo-safe list manually
+        wei_layouts = {
+            "OIYX", "OIXY", "OYIX", "OXYI",
+            "IOYX", "IOXY", "IYOX", "IXOY",
+            "YXIO", "XYIO", "YIOX", "XIOY"};
+
+        std::vector<std::string> out_layouts = {
+            "OYX", "OXY", "YOX", "YXO", "XOY", "XYO"};
+
+        const int O = 16;
+        const int OH = 4;
+        const int OW = 8;
+
+        struct Result
+        {
+            std::string act;
+            std::string wei;
+            std::string out;
+            uint32_t exact;
+            uint32_t close1k;
+        };
+
+        std::vector<Result> results;
+
+        for (const auto &al : act_layouts)
+        {
+            for (const auto &wl : wei_layouts)
+            {
+                for (const auto &ol : out_layouts)
+                {
+                    uint32_t exact = 0;
+                    uint32_t close1k = 0;
+
+                    for (int oc = 0; oc < O; oc++)
+                    {
+                        for (int oy = 0; oy < OH; oy++)
+                        {
+                            for (int ox = 0; ox < OW; ox++)
+                            {
+                                int32_t ref =
+                                    ref_conv_with_layout(
+                                        initial_dram,
+                                        act_base,
+                                        wei_base,
+                                        oc,
+                                        oy,
+                                        ox,
+                                        al,
+                                        wl);
+
+                                uint32_t idx =
+                                    output_index_with_layout(
+                                        oc,
+                                        oy,
+                                        ox,
+                                        ol);
+
+                                int32_t gold =
+                                    (idx < gold_delta.size()) ? gold_delta[idx] : 0;
+
+                                if (ref == gold)
+                                {
+                                    exact++;
+                                }
+
+                                int64_t diff =
+                                    static_cast<int64_t>(ref) -
+                                    static_cast<int64_t>(gold);
+
+                                if (diff < 0)
+                                    diff = -diff;
+
+                                if (diff <= 1000)
+                                {
+                                    close1k++;
+                                }
+                            }
+                        }
+                    }
+
+                    results.push_back({al, wl, ol, exact, close1k});
+                }
+            }
+        }
+
+        std::sort(
+            results.begin(),
+            results.end(),
+            [](const Result &a, const Result &b)
+            {
+                if (a.exact != b.exact)
+                    return a.exact > b.exact;
+                return a.close1k > b.close1k;
+            });
+
+        std::cout << "\n=========================================\n";
+        std::cout << "BRUTE FORCE CONV LAYOUT VS GOLD_DELTA\n";
+        std::cout << "=========================================\n";
+
+        for (size_t i = 0; i < results.size() && i < 20; i++)
+        {
+            std::cout << "rank " << i
+                      << " act=" << results[i].act
+                      << " wei=" << results[i].wei
+                      << " out=" << results[i].out
+                      << " exact=" << results[i].exact
+                      << " close1k=" << results[i].close1k
+                      << "\n";
+        }
+
+        std::cout << "=========================================\n\n";
     }
 
     void preload_int8_region_to_srama(
@@ -2161,6 +2474,7 @@ private:
 
             debug_gold_delta_preview(gold_delta, 32);
             debug_reference_conv_vs_gold_delta(initial_dram_check, gold_delta, act_dram_base_runtime, wei_dram_base_runtime);
+            brute_force_conv_layout_vs_gold_delta(initial_dram_check, gold_delta, act_dram_base_runtime, wei_dram_base_runtime);
             std::cout << "\n[COMPARE 1] SRAMC vs GOLD absolute output\n";
             compare_sramc_with_gold(sramc_out, gold_out);
             analyze_value_match_between_sramc_and_gold(sramc_out, gold_out);
