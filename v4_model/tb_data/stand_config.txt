@@ -1,0 +1,20 @@
+# Standalone Testcase Configuration
+K 64
+threshold 0.050000
+select 0
+act_incntlim 32
+act_incntstep 32
+act_outcntlim 32
+act_outcntstep 32
+wei_incntlim 2048
+wei_incntstep 32
+cxlim 64
+cxstep 32
+cklim 1024
+ckstep 32
+incntlim 63
+act_reps 1
+wei_reps 1
+dil_pat 1
+rows_active 4294967295
+cols_active 4294967295

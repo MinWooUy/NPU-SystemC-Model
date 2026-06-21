@@ -1,0 +1,18 @@
+# Standalone Multi-Tile Testcase Configuration
+K 24
+threshold 0.050000
+act_incntlim 72
+act_incntstep 3
+act_outcntlim 32
+act_outcntstep 32
+wei_incntlim 168
+wei_incntstep 3
+cxlim 64
+cxstep 32
+cklim 1024
+ckstep 32
+incntlim 23
+act_reps 2
+wei_reps 2
+dil_pat 3
+rows_active 4294967295

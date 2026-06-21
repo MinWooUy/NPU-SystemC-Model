@@ -1,0 +1,20 @@
+# Standalone Strided Testcase Configuration
+K 32
+threshold 0.050000
+select 0
+act_incntlim 64
+act_incntstep 2
+act_outcntlim 32
+act_outcntstep 32
+wei_incntlim 128
+wei_incntstep 2
+cxlim 64
+cxstep 32
+cklim 1024
+ckstep 32
+incntlim 31
+act_reps 1
+wei_reps 1
+dil_pat 1
+rows_active 4294967295
+cols_active 4294967295
